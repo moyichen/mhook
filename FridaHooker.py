@@ -46,31 +46,20 @@ class FridaHooker(Hooker):
             f.write(log)
 
     def make_js_code(self, sym, backtrace):
-        header = '''
-        var f = findFunction("{so_name}", "{low_name}", {rva:#x});
-        if (f) {{
-            Interceptor.attach(f, {{'''.format(so_name=sym['so_name'], low_name=sym['low_name'], rva=sym['rva'] + 1)
-        footer = '''
-            });
-        }
-        '''
-        onLeave = '''
-                onLeave: function(retval) {{
-                    send(getMsgHeader() + "{user_name} end");
-                }}'''.format(user_name=sym['user_name'])
-        onEnterBody = '''send(getMsgHeader() + "{user_name} begin");'''.format(user_name=sym['user_name'])
         if backtrace:
-            onTraceBody = '''
-                    var backtraces = Thread.backtrace(this.context, Backtracer.ACCURATE);
-                    send(getMsgHeader() + "{user_name} begin backtrace " + backtraces.length + ":" + backtraces.join(','));'''.format(user_name=sym['user_name'])
+            js_code = '''
+                hookMethodWithBt("{so_name}", 
+                            "{user_name}",
+                            "{low_name}",
+                            {rva:#x});
+            '''.format(so_name=sym['so_name'], user_name=sym['user_name'], low_name=sym['low_name'], rva=sym['rva'] + 1)
         else:
-            onTraceBody = ''
-        onEnter = '''
-                onEnter: function(args) {{
-                    {}{}
-                }},'''.format(onEnterBody, onTraceBody)
-
-        js_code = header + onEnter + onLeave + footer
+            js_code = '''
+                hookMethod("{so_name}", 
+                            "{user_name}",
+                            "{low_name}",
+                            {rva:#x});
+            '''.format(so_name=sym['so_name'], user_name=sym['user_name'], low_name=sym['low_name'], rva=sym['rva'] + 1)
         return js_code
 
     def gen_config_from_file(self, filename, print_log):

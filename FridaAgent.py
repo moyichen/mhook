@@ -62,12 +62,17 @@ function findFunction(moduleName, functionName, offset) {
         var rva = new NativePointer(offset);
         if (!rva.equals(0)) {
             var base = Module.findBaseAddress(moduleName);
-            f = rva.add(base);
-            console.log("hook " + functionName + ":" + moduleName + " with rva, " + base+"+"+rva+"="+f);
+            if (base != null)
+            {
+                f = rva.add(base);
+            }
         }
     }
     if (f==null) {
-        console.log("Cann't find function address with: " + functionName + " : " + moduleName + " : " + rva);
+        console.log("Cann't find function address with: " + functionName + " : " + moduleName + " : " + offset);
+    }
+    else {
+        console.log("hook: " + functionName + " : " + moduleName + " at " + f);
     }
     return f;
 }
@@ -97,6 +102,49 @@ function obj2str(obj, name) {
     }
     str += "\\n}";
     return str;
+}
+
+Interceptor.attach(Module.findExportByName(null, "dlopen"), {
+    onEnter: function(args) {
+        this.params = "" + Memory.readUtf8String(args[0]) + ", " + args[1];
+        send(getMsgHeader() + "dlopen(" + this.params + ") begin");
+    },
+    onLeave: function(retval) {
+        send(getMsgHeader() + "dlopen(" + this.params + ") end");
+    }
+});
+
+function hookMethod(so_name, user_name, low_name, rva)
+{
+    var f = findFunction(so_name, low_name, rva);
+    if (f) {
+        Interceptor.attach(f, {
+            onEnter: function(args) {
+                send(getMsgHeader() + user_name + " begin");
+            },
+            onLeave: function(retval) {
+                send(getMsgHeader() + user_name + " end");
+            }
+        });
+    }
+}
+
+function hookMethodWithBt(so_name, user_name, low_name, rva)
+{
+    var f = findFunction(so_name, low_name, rva);
+    if (f) {
+        Interceptor.attach(f, {
+            onEnter: function(args) {
+                var msgHdr = getMsgHeader();
+                send(msgHdr + user_name + " begin");
+                var backtraces = Thread.backtrace(this.context, Backtracer.ACCURATE);
+                send(msgHdr + user_name + " begin backtrace " + backtraces.length + ":" + backtraces.join(','));
+            },
+            onLeave: function(retval) {
+                send(getMsgHeader() + user_name + " end");
+            }
+        });
+    }
 }
 // ==============================================================================
 '''
@@ -169,14 +217,6 @@ Interceptor.attach(Module.findExportByName(null, "fwrite"), {
 Interceptor.attach(Module.findExportByName(null, "fclose"), {
     onEnter: function(args) {
         printLog("fclose(fp=" + args[0] + ")");
-    }
-});
-'''
-
-jscode_dlopen = '''
-Interceptor.attach(Module.findExportByName(null, "dlopen"), {
-    onEnter: function(args) {
-        printLog("dlopen(" + Memory.readUtf8String(args[0]) + ", " + args[1] + ")");
     }
 });
 '''

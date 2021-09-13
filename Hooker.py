@@ -2,8 +2,11 @@
 # -*- coding: utf8 -*-
 # author: moyichen
 # date:   2021/3/23
+import json
 import shutil
 import threading
+from pprint import pprint
+
 import threadpool
 from time import sleep
 
@@ -31,13 +34,52 @@ class SymbolLoader(object):
         self.lock.release()
 
     def load(self, files):
-        pool = threadpool.ThreadPool(int(len(files)/2)+1)
+        pool = threadpool.ThreadPool(int(len(files) / 2) + 1)
         requests = threadpool.makeRequests(self.load_symbol, files)
         [pool.putRequest(req) for req in requests]
 
         pool.wait()
         log_info('Completed to load all symbols!')
         return self.soes
+
+    def findSymbol(self, filter_so, filter_sym, type_filters):
+        result = []
+        if filter_so:
+            log_info('find symbol `{}` in `{}`'.format(filter_sym, filter_so))
+
+        for elf in self.soes:
+            if filter_so and elf.so_name != filter_so:
+                continue
+
+            matched_syms = elf.find_symbol(filter_sym, type_filters)
+            if matched_syms:
+                result.extend(matched_syms)
+
+        return result
+
+
+class LibrarySymbol(object):
+    def __init__(self):
+        self.library = {}
+
+    def addSymbol(self, sym):
+        so_name = sym["so_name"]
+        low_name = sym["low_name"]
+        if so_name not in self.library:
+            self.library[so_name] = {}
+
+        if low_name not in self.library[so_name]:
+            self.library[so_name][low_name] = sym
+
+    def addSymbols(self, syms):
+        for sym in syms:
+            self.addSymbol(sym)
+
+    def hasSymbols(self):
+        return len(self.library) > 0
+
+    def toJson(self):
+        return json.dumps(self.library, indent=4, sort_keys=True)
 
 
 class Hooker(object):
@@ -48,7 +90,7 @@ class Hooker(object):
         self.modules = None
         self.timestamp = None
         self.local_log = None
-        self.debugMode = False   # 同步输出到控制台
+        self.debugMode = False  # 同步输出到控制台
         self.log_dir = "./output/{}/{}/log".format(self.hookee.name, self.hookee.version)
         self.report_dir = "./output/{}/{}/report".format(self.hookee.name, self.hookee.version)
         self.config = None  # hookconfig.json or js code
@@ -86,13 +128,16 @@ class Hooker(object):
         modules = self.device.get_modules(self.hookee.name)
         if not modules:
             modules = self.modules
-        backtrace_filename = '{}/hook-{}-{}-{}.backtrace'.format(self.report_dir, self.hookee.name, self.hookee.version, self.timestamp)
+        backtrace_filename = '{}/hook-{}-{}-{}.backtrace'.format(self.report_dir, self.hookee.name, self.hookee.version,
+                                                                 self.timestamp)
         hooklog.gen_backtrace(backtrace_filename, modules, self.hookee.symbol_dir)
 
-        json_filename = '{}/hook-{}-{}-{}.speedscope.json'.format(self.report_dir, self.hookee.name, self.hookee.version, self.timestamp)
+        json_filename = '{}/hook-{}-{}-{}.speedscope.json'.format(self.report_dir, self.hookee.name,
+                                                                  self.hookee.version, self.timestamp)
         hooklog.gen_speedscope_json(json_filename, True)
 
-        report_filename = '{}/hook-{}-{}-{}.html'.format(self.report_dir, self.hookee.name, self.hookee.version, self.timestamp)
+        report_filename = '{}/hook-{}-{}-{}.html'.format(self.report_dir, self.hookee.name, self.hookee.version,
+                                                         self.timestamp)
         hooklog.gen_report(report_filename, app_info, True, needPie=needPie, isDuration=isDuration)
 
         open_file(self.local_log)
@@ -144,39 +189,33 @@ class Hooker(object):
             if not os.path.exists(so):
                 self.device.download_file(m, so)
 
-    @staticmethod
-    def has_symbol(result, sym):
-        for s in result:
-            if s['rva'] == sym['rva'] and s['so_name'] == sym['so_name'] and s['low_name'] == sym['low_name']:
-                return True
-
-        return False
-
-    @staticmethod
-    def append_symbols(result, symbols):
-        for sym in symbols:
-            if not Hooker.has_symbol(result, sym):
-                result.append(sym)
-
-    def get_full_symbols(self, sym_list, type_filters=[]):
-        result = []
-        soes = []
-        unfounded_syms = []
-
-        files = []
-        # 都指定so的情况下，只加载指定的so
-        for sym in sym_list:
+    def get_so_files(self, syms):
+        # 指定so的情况下，只加载指定的so
+        so_files = []
+        for sym in syms:
             sym_and_so = sym.split('#')
             if len(sym_and_so) > 1:
-                if sym_and_so[1] not in files:
-                    files.append(sym_and_so[1])
+                if sym_and_so[1] not in so_files:
+                    so_files.append(sym_and_so[1])
             else:
                 # 有一个未指定就需要遍历所有的so
-                files = os.listdir(self.hookee.symbol_dir)
+                so_files = os.listdir(self.hookee.symbol_dir)
                 break
+        return so_files
 
-        loader = SymbolLoader(self.hookee.symbol_dir)
-        soes = loader.load(files)
+    def get_full_symbols_dict(self, sym_list, type_filters=[]):
+        '''
+
+        :param sym_list: ["abc#libXXX.so", "efg", ...]
+        :param type_filters:
+        :return: {'so_name': xxx, [{'user_name': xxx, 'low_name': xxx, 'rva': xxx}, {}, ...]}
+        '''
+        result = LibrarySymbol()
+        unfounded_syms = []
+
+        symLoader = SymbolLoader(self.hookee.symbol_dir)
+        so_files = self.get_so_files(sym_list)
+        symLoader.load(so_files)
 
         for sym in sym_list:
             sym_and_so = sym.split('#')
@@ -185,25 +224,16 @@ class Hooker(object):
             if len(sym_and_so) > 1:
                 filter_so = sym_and_so[1]
 
-            if filter_so:
-                log_info('find symbol `{}` in `{}`'.format(filter_sym, filter_so))
-
-            founed = False
-            for elf in soes:
-                if filter_so and elf.so_name != filter_so:
-                    continue
-
-                matched_syms = elf.find_symbol(filter_sym, type_filters)
-                if matched_syms:
-                    founed = True
-                    Hooker.append_symbols(result, matched_syms)
-            if not founed:
+            matched_syms = symLoader.findSymbol(filter_so, filter_sym, type_filters)
+            if len(matched_syms) == 0:
                 unfounded_syms.append(sym)
+            else:
+                result.addSymbols(matched_syms)
 
-        if len(result) > 0:
+        if result.hasSymbols():
             log_info('the following symbols will be hooked.')
-            tb = print_table(result, result[0].keys())
-            log_info(tb.get_string())
+            s = result.toJson()
+            log_info(s)
 
         if len(unfounded_syms) > 0:
             if len(sym_list) == len(unfounded_syms):

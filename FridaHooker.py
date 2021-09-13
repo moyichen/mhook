@@ -45,36 +45,45 @@ class FridaHooker(Hooker):
         with open(self.local_log, 'w+') as f:
             f.write(log)
 
-    def make_js_code(self, sym, backtrace):
-        if backtrace:
-            js_code = '''
-                hookMethodWithBt("{so_name}", 
-                            "{user_name}",
-                            "{low_name}",
-                            {rva:#x});
-            '''.format(so_name=sym['so_name'], user_name=sym['user_name'], low_name=sym['low_name'], rva=sym['rva'] + 1)
-        else:
-            js_code = '''
-                hookMethod("{so_name}", 
-                            "{user_name}",
-                            "{low_name}",
-                            {rva:#x});
-            '''.format(so_name=sym['so_name'], user_name=sym['user_name'], low_name=sym['low_name'], rva=sym['rva'] + 1)
-        return js_code
-
     def gen_config_from_file(self, filename, print_log):
         super().gen_config_from_file(filename, print_log)
         self.fridaAgent.setDebugMode(print_log)
 
     def gen_config(self, sym_list, backtrace=False):
         log_info("generate hook config: {} with option {}.".format(sym_list, backtrace))
-        syms, unfounded_syms = self.get_full_symbols(sym_list)
+        config, unfounded_syms = self.get_full_symbols_dict(sym_list)
         self.config = jscode_global
-        for s in syms:
-            if s['size'] <= 4:
-                log_warning('{}:{} is too small to hook well. Skip it.'.format(s['user_name'], s['so_name']))
-                continue
-            self.config += self.make_js_code(s, backtrace)
+        syms = config.library
+        for so_name in syms:
+            c_so_name = so_name.replace(".", "_")
+            hook_sym = '''var {} = [
+            '''.format(c_so_name)
+            for low_name in syms[so_name]:
+                size = syms[so_name][low_name]["size"]
+                user_name = syms[so_name][low_name]["user_name"]
+                rva = syms[so_name][low_name]["rva"]
+                if size <= 4:
+                    log_warning('{}:{} is too small to hook well. Skip it.'.format(user_name, so_name))
+                    continue
+
+                ss = '''{{"user_name": "{}", "low_name": "{}", "rva": {}}},
+                '''.format(user_name, low_name, rva+1)
+                hook_sym += ss
+
+            if backtrace:
+                hook_sym += '''];
+                hookMethodsWithBt("{}", {});
+                '''.format(so_name, c_so_name)
+            else:
+                hook_sym += '''];
+                hookMethods("{}", {});
+                '''.format(so_name, c_so_name)
+
+            hook_sym += '''
+                hook_libraries["{}"] = {};
+            '''.format(so_name, c_so_name)
+
+            self.config += hook_sym
         self.fridaAgent.setDebugMode(self.debugMode)
 
     def convert_2_auto_hook_log(self, log, threads):

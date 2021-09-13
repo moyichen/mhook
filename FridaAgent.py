@@ -16,6 +16,7 @@ from utils import log_info, log_warning, log_fatal, safe_make_dirs, log_error, l
 
 jscode_global = '''
 /**
+ * author: moyichen
  * https://www.runoob.com/js/js-tutorial.html
  * https://frida.re/docs/javascript-api/
  * 
@@ -45,18 +46,26 @@ jscode_global = '''
     var id = args[0].add(288).readS32();
  */
 // ==============================================================================
+// 获取时间戳，返回值秒为单位，精确到小数点后6位：123456789.123456s
+// js只能精确到毫秒：var timestamp = new Date().getTime();
 var clock_gettime = new NativeFunction(Module.findExportByName(null, "clock_gettime"), "int32", ['int32', 'pointer']);
-function getMsgHeader() {
+function getTickCountUS() {
     var timespec = Memory.alloc(8);
     var ret = clock_gettime(0, timespec);
     var sec = timespec.readS32();
     var nsec = timespec.add(4).readS32();
     var ts = sec + nsec/1000000000;
-    var aa = ts.toFixed(6) + " " + Process.getCurrentThreadId() + " ";
+    return ts.toFixed(6);
+}
+
+function getMsgHeader() {
+    var ts = getTickCountUS();
+    var aa = ts + " " + Process.getCurrentThreadId() + " ";
     return aa;
 }
 
 function findFunction(moduleName, functionName, offset) {
+    // console.log("findFunction: " + functionName + " : " + moduleName + " at " + offset);
     var f = Module.findExportByName(moduleName, functionName);
     if (f == null) {
         var rva = new NativePointer(offset);
@@ -77,8 +86,7 @@ function findFunction(moduleName, functionName, offset) {
     return f;
 }
 
-function hex2float(v)
-{   
+function hex2float(v) {   
     var buf = new ArrayBuffer(4);
     var i = new Int32Array(buf);
     i[0] = v.toInt32();
@@ -104,18 +112,9 @@ function obj2str(obj, name) {
     return str;
 }
 
-Interceptor.attach(Module.findExportByName(null, "dlopen"), {
-    onEnter: function(args) {
-        this.params = "" + Memory.readUtf8String(args[0]) + ", " + args[1];
-        send(getMsgHeader() + "dlopen(" + this.params + ") begin");
-    },
-    onLeave: function(retval) {
-        send(getMsgHeader() + "dlopen(" + this.params + ") end");
-    }
-});
+var hook_libraries = [];
 
-function hookMethod(so_name, user_name, low_name, rva)
-{
+function hookMethod(so_name, user_name, low_name, rva) {
     var f = findFunction(so_name, low_name, rva);
     if (f) {
         Interceptor.attach(f, {
@@ -129,8 +128,7 @@ function hookMethod(so_name, user_name, low_name, rva)
     }
 }
 
-function hookMethodWithBt(so_name, user_name, low_name, rva)
-{
+function hookMethodWithBt(so_name, user_name, low_name, rva) {
     var f = findFunction(so_name, low_name, rva);
     if (f) {
         Interceptor.attach(f, {
@@ -146,6 +144,43 @@ function hookMethodWithBt(so_name, user_name, low_name, rva)
         });
     }
 }
+
+// symbols = [{"user_name": xx, "low_name": xx, "rva": 0x1234}, {}, ...]
+function hookMethods(so_name, symbols) {
+    for (var idx in symbols) {
+        var sym = symbols[idx];
+        hookMethod(so_name, sym["user_name"], sym["low_name"], sym["rva"]);
+    }
+}
+
+function hookMethodsWithBt(so_name, symbols) {
+    for (var idx in symbols) {
+        var sym = symbols[idx];
+        hookMethodWithBt(so_name, sym["user_name"], sym["low_name"], sym["rva"]);
+    }
+}
+
+Interceptor.attach(Module.findExportByName(null, "dlopen"), {
+    onEnter: function(args) {
+        var fn = Memory.readUtf8String(args[0]);
+        var idx = fn.lastIndexOf("/");
+        if (idx >= 0) {
+            fn = fn.slice(idx+1);
+        }
+        this.params = "" + fn;
+        send(getMsgHeader() + "dlopen(" + this.params + ") begin");
+    },
+    onLeave: function(retval) {
+        send(getMsgHeader() + "dlopen(" + this.params + ") end");
+        var lib = hook_libraries[this.params];
+        if (lib) {
+            console.log("dlopen: hook: " + this.params);
+            hook_libraries[this.params] = [];
+            hookMethods(this.params, lib);
+        }
+    }
+});
+
 // ==============================================================================
 '''
 
@@ -247,10 +282,11 @@ class FridaAgent(object):
         shell = AndroidDevice()
         abi = shell.get_device_info(['abi'])[0][1]
         log_info("eabi : " + abi)
-        if 'armeabi-v7a' in abi:
-            self.server_local = './bin/arm/frida-server-{}-android-arm'.format(self.server_version)
-        else:
-            self.server_local = './bin/arm/frida-server-{}-android-arm64'.format(self.server_version)
+        self.server_local = './bin/arm/frida-server-{}-android-arm'.format(self.server_version)
+        # if 'armeabi-v7a' in abi:
+        #     self.server_local = './bin/arm/frida-server-{}-android-arm'.format(self.server_version)
+        # else:
+        #     self.server_local = './bin/arm/frida-server-{}-android-arm64'.format(self.server_version)
         self.server_remote = "/data/local/tmp/frida-server"
 
     def setDebugMode(self, debugMode):

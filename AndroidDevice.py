@@ -97,15 +97,21 @@ class AndroidDevice(object):
             return None
 
         output = self.ShellCmd(['debuggerd', str(real_pid)])
-        output = output.strip().split('\n')
-        if len(output) != 2:
-            log_error(output)
-            return None
 
-        _, tombstone = output[1].split(':')
-        tombstone = tombstone.strip()
         local_file = './output/tombstone_{}.log'.format(pid)
-        self.download_file(tombstone, local_file)
+        if output.startswith('*** *** *** *** ***'):
+            with open(local_file, "w+") as f:
+                f.write(output)
+        else:
+            # file list
+            output = output.strip().split('\n')
+            if len(output) != 2:
+                log_error(output)
+                return None
+
+            _, tombstone = output[1].split(':')
+            tombstone = tombstone.strip()
+            self.download_file(tombstone, local_file)
         return local_file
 
     def list_app(self):

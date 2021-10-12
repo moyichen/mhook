@@ -27,7 +27,7 @@ def report(filename, output):
 
 
 @click.command()
-@click.option('--app', '-p', help='package name')
+@click.option('--app', '-p', required=True, help='package name')
 @click.option('--function', '-i', help='function name. support regex e.g. `-i ".*click.*[#libXXX.so]"`. '
                                        'If not set, it will use --filename.', required=False, multiple=True)
 @click.option('--backtrace', '-b', help='catch the call backtrace.', default=False, is_flag=True)

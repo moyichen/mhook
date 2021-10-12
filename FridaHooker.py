@@ -20,8 +20,8 @@ class FridaHooker(Hooker):
         pass
 
     def start_hook(self):
-        self.start_app()
         self.fridaAgent.connect()
+        # self.start_app()
         success = self.fridaAgent.attach(self.hookee.name)
         if not success:
             return

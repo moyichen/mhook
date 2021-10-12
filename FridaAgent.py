@@ -11,6 +11,7 @@ import click
 import frida
 from PIL import Image
 
+import CmdHelper
 from AndroidDevice import AndroidDevice
 from utils import log_info, log_warning, log_fatal, safe_make_dirs, log_error, log_exit
 
@@ -46,6 +47,38 @@ jscode_global = '''
     var id = args[0].add(288).readS32();
  */
 // ==============================================================================
+var hook_libraries = [];
+function hook_dlopen(_dlopen_) {
+    var f = Module.findExportByName(null, _dlopen_);
+    if (f) {
+        console.log("hook: " + _dlopen_);
+        Interceptor.attach(f, {
+            onEnter: function(args) {
+                var pathptr = args[0];
+                if (pathptr != undefined && pathptr != null) {
+                    var fn = ptr(pathptr).readCString();
+                    var idx = fn.lastIndexOf("/");
+                    if (idx >= 0) {
+                        fn = fn.slice(idx+1);
+                    }
+                    if (hook_libraries[fn]) {
+                        this.params = fn;
+                    }
+                }
+            },
+            onLeave: function(retval) {
+                if (this.params) {
+                    console.log("hook: " + this.params);
+                    hookMethods(this.params, hook_libraries[this.params]);
+                }
+            }
+        });
+    }
+}
+
+hook_dlopen("dlopen");
+//hook_dlopen("android_dlopen_ext");
+
 // 获取时间戳，返回值秒为单位，精确到小数点后6位：123456789.123456s
 // js只能精确到毫秒：var timestamp = new Date().getTime();
 var clock_gettime = new NativeFunction(Module.findExportByName(null, "clock_gettime"), "int32", ['int32', 'pointer']);
@@ -112,8 +145,6 @@ function obj2str(obj, name) {
     return str;
 }
 
-var hook_libraries = [];
-
 function hookMethod(so_name, user_name, low_name, rva) {
     var f = findFunction(so_name, low_name, rva);
     if (f) {
@@ -159,27 +190,6 @@ function hookMethodsWithBt(so_name, symbols) {
         hookMethodWithBt(so_name, sym["user_name"], sym["low_name"], sym["rva"]);
     }
 }
-
-Interceptor.attach(Module.findExportByName(null, "dlopen"), {
-    onEnter: function(args) {
-        var fn = Memory.readUtf8String(args[0]);
-        var idx = fn.lastIndexOf("/");
-        if (idx >= 0) {
-            fn = fn.slice(idx+1);
-        }
-        this.params = "" + fn;
-        send(getMsgHeader() + "dlopen(" + this.params + ") begin");
-    },
-    onLeave: function(retval) {
-        send(getMsgHeader() + "dlopen(" + this.params + ") end");
-        var lib = hook_libraries[this.params];
-        if (lib) {
-            console.log("dlopen: hook: " + this.params);
-            hook_libraries[this.params] = [];
-            hookMethods(this.params, lib);
-        }
-    }
-});
 
 // ==============================================================================
 '''
@@ -317,13 +327,18 @@ class FridaAgent(object):
         shell = AndroidDevice()
         pid = shell.pidof('frida-server')
         if pid == -1:
-            log_exit('frida-server is not running.'
-                     'You need to start frida server manually.'
-                      '- adb shell {} &'.format(self.server_remote))
-            return False
+            pipe = CmdHelper.Popen(['adb', 'shell', '/data/local/tmp/frida-server', '&'])
+            pid = shell.pidof('frida-server')
+            if pid == -1:
+                log_exit('frida-server is not running.'
+                         'You need to start frida server manually.'
+                          '- adb shell {} &'.format(self.server_remote))
+                return False
+            else:
+                log_info('frida-server is running now.')
         else:
             log_info('frida-server already is running.')
-            return True
+        return True
 
     def stop_server(self):
         shell = AndroidDevice()
@@ -339,8 +354,10 @@ class FridaAgent(object):
 
     def attach(self, app):
         shell = AndroidDevice()
+        shell.start_app(app)
         pid = shell.pidof(app)
-
+        # pid = self.device.spawn([app])
+        # self.device.resume(pid)
         log_info('attach to {} (pid={})...'.format(app, pid))
         for i in range(3):
             try:

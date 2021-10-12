@@ -47,6 +47,11 @@ jscode_global = '''
     var id = args[0].add(288).readS32();
  */
 // ==============================================================================
+String.prototype.times = function(n) {
+    if (n < 0) return "";
+    return (new Array(n+1)).join(this);
+};
+
 var hook_libraries = [];
 function hook_dlopen(_dlopen_) {
     var f = Module.findExportByName(null, _dlopen_);
@@ -68,7 +73,7 @@ function hook_dlopen(_dlopen_) {
             },
             onLeave: function(retval) {
                 if (this.params) {
-                    console.log("hook: " + this.params);
+                    console.log("hook: " + this.params + " has been loaded.");
                     hookMethods(this.params, hook_libraries[this.params]);
                 }
             }
@@ -107,15 +112,14 @@ function findFunction(moduleName, functionName, offset) {
             if (base != null)
             {
                 f = rva.add(base);
+                // console.log("hook: " + functionName + " " + "-".times(60-functionName.length) + " : " + moduleName + " at " + f + " <= " + base + " + " + rva);
             }
         }
     }
     if (f==null) {
         console.log("Cann't find function address with: " + functionName + " : " + moduleName + " : " + offset);
     }
-    else {
-        console.log("hook: " + functionName + " : " + moduleName + " at " + f);
-    }
+
     return f;
 }
 
@@ -148,6 +152,7 @@ function obj2str(obj, name) {
 function hookMethod(so_name, user_name, low_name, rva) {
     var f = findFunction(so_name, low_name, rva);
     if (f) {
+        console.log("hook: " + user_name + " " + "-".times(60-user_name.length) + " : " + so_name + " at " + f);
         Interceptor.attach(f, {
             onEnter: function(args) {
                 send(getMsgHeader() + user_name + " begin");
@@ -162,6 +167,7 @@ function hookMethod(so_name, user_name, low_name, rva) {
 function hookMethodWithBt(so_name, user_name, low_name, rva) {
     var f = findFunction(so_name, low_name, rva);
     if (f) {
+        console.log("hook: " + user_name + " " + "-".times(60-user_name.length) + " : " + so_name + " at " + f);
         Interceptor.attach(f, {
             onEnter: function(args) {
                 var msgHdr = getMsgHeader();
@@ -178,6 +184,12 @@ function hookMethodWithBt(so_name, user_name, low_name, rva) {
 
 // symbols = [{"user_name": xx, "low_name": xx, "rva": 0x1234}, {}, ...]
 function hookMethods(so_name, symbols) {
+    var base = Module.findBaseAddress(so_name);
+    if (base == null) {
+        console.log("hook: " + so_name + " hasn't been loaded.");
+        return;
+    }
+    
     for (var idx in symbols) {
         var sym = symbols[idx];
         hookMethod(so_name, sym["user_name"], sym["low_name"], sym["rva"]);
@@ -185,6 +197,12 @@ function hookMethods(so_name, symbols) {
 }
 
 function hookMethodsWithBt(so_name, symbols) {
+    var base = Module.findBaseAddress(so_name);
+    if (base == null) {
+        console.log("hook: " + so_name + " hasn't been loaded.");
+        return;
+    }
+    
     for (var idx in symbols) {
         var sym = symbols[idx];
         hookMethodWithBt(so_name, sym["user_name"], sym["low_name"], sym["rva"]);
@@ -328,6 +346,7 @@ class FridaAgent(object):
         pid = shell.pidof('frida-server')
         if pid == -1:
             pipe = CmdHelper.Popen(['adb', 'shell', '/data/local/tmp/frida-server', '&'])
+            log_info("{}".format(pipe))
             pid = shell.pidof('frida-server')
             if pid == -1:
                 log_exit('frida-server is not running.'

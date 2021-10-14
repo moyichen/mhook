@@ -3,17 +3,20 @@
 # author: moyichen
 # date:   2019/12/16
 import json
+import os.path
 import sys
 import time
 from pprint import pprint, pformat
 
 import click
 import frida
+import requests
 from PIL import Image
 
 import CmdHelper
 from AndroidDevice import AndroidDevice
-from utils import log_info, log_warning, log_fatal, safe_make_dirs, log_error, log_exit
+from utils import log_info, log_warning, log_fatal, safe_make_dirs, log_error, log_exit, download_file, unzip_file, \
+    unxz_file
 
 jscode_global = '''
 /**
@@ -149,22 +152,59 @@ function obj2str(obj, name) {
     return str;
 }
 
-function hookMethod(so_name, user_name, low_name, rva) {
+function get_arg_value(arg_type, arg_value) {
+    switch (arg_type) {
+        case 'T': // this
+        case 'P': // pointer
+            return arg_value;
+        case 'U': // uint32_t
+            return arg_value.toInt32();
+        case 'I': // int32_t
+            return arg_value.toInt32();
+        case 'B': // bool
+            return bool(arg_value);
+        case 'C': // c-string
+            return Memory.readUtf8String(arg_value);
+        case 'F': // float
+            return hex2float(arg_value);
+    }
+}
+
+function getArgs(args, signature) {
+    var arg_str = "";
+
+    if (signature.length > 0) {
+        arg_str = get_arg_value(signature[0], args[0]);
+        for (var i = 1; i < signature.length; i++) {
+            arg_str += ", " + get_arg_value(signature[i], args[i]);
+        }
+    }
+
+    return arg_str;
+}
+
+function hookMethod(so_name, user_name, low_name, rva, signature) {
     var f = findFunction(so_name, low_name, rva);
     if (f) {
         console.log("hook: " + user_name + " " + "-".times(60-user_name.length) + " : " + so_name + " at " + f);
         Interceptor.attach(f, {
             onEnter: function(args) {
                 send(getMsgHeader() + user_name + " begin");
+                if (signature.hasOwnProperty("args")) {
+                    send(getMsgHeader() + user_name + " args: " + getArgs(args, signature["args"]));
+                }
             },
             onLeave: function(retval) {
+                if (signature.hasOwnProperty("return")) {
+                    send(getMsgHeader() + user_name + " return: " + get_arg_value(signature["return"], retval));
+                }
                 send(getMsgHeader() + user_name + " end");
             }
         });
     }
 }
 
-function hookMethodWithBt(so_name, user_name, low_name, rva) {
+function hookMethodWithBt(so_name, user_name, low_name, rva, signature) {
     var f = findFunction(so_name, low_name, rva);
     if (f) {
         console.log("hook: " + user_name + " " + "-".times(60-user_name.length) + " : " + so_name + " at " + f);
@@ -172,17 +212,36 @@ function hookMethodWithBt(so_name, user_name, low_name, rva) {
             onEnter: function(args) {
                 var msgHdr = getMsgHeader();
                 send(msgHdr + user_name + " begin");
+                if (signature.hasOwnProperty("args")) {
+                    send(getMsgHeader() + user_name + " args: " + getArgs(args, signature["args"]));
+                }
                 var backtraces = Thread.backtrace(this.context, Backtracer.ACCURATE);
                 send(msgHdr + user_name + " begin backtrace " + backtraces.length + ":" + backtraces.join(','));
             },
             onLeave: function(retval) {
+                if (signature.hasOwnProperty("return")) {
+                    send(getMsgHeader() + user_name + " return: " + get_arg_value(signature["return"], retval));
+                }
                 send(getMsgHeader() + user_name + " end");
             }
         });
     }
 }
 
-// symbols = [{"user_name": xx, "low_name": xx, "rva": 0x1234}, {}, ...]
+/*
+symbols = [
+    {
+        "user_name": xx,
+        "low_name": xx,
+        "rva": 0x1234,
+        "signature": {
+            "return": 'B',
+            "args": ["C", "I", ...]
+        }
+    },
+    {},
+    ...]
+*/
 function hookMethods(so_name, symbols) {
     var base = Module.findBaseAddress(so_name);
     if (base == null) {
@@ -192,7 +251,11 @@ function hookMethods(so_name, symbols) {
     
     for (var idx in symbols) {
         var sym = symbols[idx];
-        hookMethod(so_name, sym["user_name"], sym["low_name"], sym["rva"]);
+        var signature = {};
+        if (sym.hasOwnProperty("signature")) {
+            signature = sym["signature"];
+        }
+        hookMethod(so_name, sym["user_name"], sym["low_name"], sym["rva"], signature);
     }
 }
 
@@ -205,10 +268,22 @@ function hookMethodsWithBt(so_name, symbols) {
     
     for (var idx in symbols) {
         var sym = symbols[idx];
-        hookMethodWithBt(so_name, sym["user_name"], sym["low_name"], sym["rva"]);
+        var signature = {};
+        if (sym.hasOwnProperty("signature")) {
+            signature = sym["signature"];
+        }
+        hookMethodWithBt(so_name, sym["user_name"], sym["low_name"], sym["rva"], signature);
     }
 }
 
+/*
+signature:
+"signature": 
+{
+    "return": 'B',
+    "args": ["C", "I", ...]
+}
+*/
 // ==============================================================================
 '''
 
@@ -293,6 +368,95 @@ Interceptor.attach(f, {
 });
 '''
 
+class FridaServerUpdater(object):
+    FRIDA_SERVER_LATEST_RELEASE = 'https://api.github.com/repos/frida/frida/releases/latest'
+    FRIDA_SERVER_TAGGED_RELEASE = 'https://api.github.com/repos/frida/frida/releases/tags/{tag}'
+    config = {}
+    config_file = os.path.expanduser('~/.mhook/frida_server_versions.json')
+    local_path = os.path.expanduser('~/.mhook/android/')
+
+    architectures = {
+        'armeabi': 'arm',
+        'armeabi-v7a': 'arm',
+        'arm64': 'arm64',
+        'arm64-v8a': 'arm64',
+        'x86': 'x86',
+        'x86_64': 'x86_64',
+    }
+
+    def __init__(self):
+        self.request_cache = {}
+
+        safe_make_dirs(self.local_path)
+
+        if os.path.exists(self.config_file):
+            with open(self.config_file, "r") as f:
+                self.config = json.load(f)
+
+    def get_latest_version(self):
+        r = self._call(self.FRIDA_SERVER_LATEST_RELEASE)
+        if 'tag_name' in r:
+            latest_version = r['tag_name']
+            self.config['latest_version'] = latest_version
+            self.update_config()
+            return self.config['latest_version']
+        else:
+            log_error(r)
+            return self.config['current_version']
+
+    def get_assets(self) -> dict:
+        assets = self._call(self.FRIDA_SERVER_TAGGED_RELEASE.format(tag=self.config['latest_version']))
+        if 'assets' in assets:
+            return assets['assets']
+        else:
+            log_error('Unable to determine assets for frida server version {}'.format(self.config['latest_version']))
+            return {}
+
+    def get_download_url(self, arch) -> str:
+        url_start = 'frida-server-'
+        url_end = '-android-{}.xz'.format(arch)
+
+        for asset in self.get_assets():
+            if asset['name'].startswith(url_start) and asset['name'].endswith(url_end):
+                return asset['browser_download_url']
+
+        log_warning('Unable to determine URL to download the library.')
+        return ""
+
+    def download_latest_version(self, arch):
+        latest_version = self.get_latest_version()
+        url = self.get_download_url(arch)
+
+        filename = download_file(url, self.local_path)
+        unzip_filename = unxz_file(filename, self.local_path)
+
+        self.config['current_version'] = latest_version
+        self.update_config()
+        return unzip_filename
+
+    def update_config(self):
+        with open(self.config_file, "w+") as f:
+            json.dump(self.config, f)
+
+    def check_update(self, arch):
+        want_to_update = False
+        if 'current_version' in self.config:
+            latest_version = self.get_latest_version()
+            if latest_version == self.config['current_version'] or not want_to_update:
+                return os.path.join(self.local_path, 'frida-server-{}-android-{}'.format(self.config['current_version'], arch))
+
+        unzip_filename = self.download_latest_version(arch)
+        return unzip_filename
+
+    def _call(self, url) -> dict:
+        if url in self.request_cache:
+            return self.request_cache[url]
+
+        results = requests.get(url).json()
+        self.request_cache[url] = results
+
+        return results
+
 
 class FridaAgent(object):
     def __init__(self):
@@ -304,13 +468,15 @@ class FridaAgent(object):
         self.script = None
         self.app = None
         self.version = frida.__version__
-        self.server_version = '15.0.15'
         self.server_url = "https://github.com/frida/frida/releases"
 
         shell = AndroidDevice()
         abi = shell.get_device_info(['abi'])[0][1]
         log_info("eabi : " + abi)
-        self.server_local = './bin/arm/frida-server-{}-android-arm'.format(self.server_version)
+        fsu = FridaServerUpdater()
+        self.server_local = fsu.check_update('arm')
+        self.server_version = fsu.get_latest_version()
+        # self.server_local = './bin/arm/frida-server-{}-android-arm'.format(self.server_version)
         # if 'armeabi-v7a' in abi:
         #     self.server_local = './bin/arm/frida-server-{}-android-arm'.format(self.server_version)
         # else:
@@ -319,6 +485,9 @@ class FridaAgent(object):
 
     def setDebugMode(self, debugMode):
         self.debugMode = debugMode
+
+    def update_frida_server(self):
+        pass
 
     def check_version(self):
         if self.version.split('.')[0] != self.server_version.split('.')[0]:
@@ -502,3 +671,12 @@ class FridaAgent(object):
         except Exception as e:
             log_error("Failed to process an incoming message for a session detach signal: {}".format(e))
             raise e
+
+
+if __name__ == '__main__':
+    xz_src = '/Users/qiyichen/.mhook/android/frida-server-15.1.3-android-arm.xz'
+    basename = os.path.basename(xz_src)
+    basename = os.path.splitext(basename)[0]
+
+    fsu = FridaServerUpdater()
+    fsu.download_latest_version('arm')

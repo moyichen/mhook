@@ -56,8 +56,7 @@ class FridaHooker(Hooker):
         syms = config.library
         for so_name in syms:
             c_so_name = so_name.replace(".", "_")
-            hook_sym = '''var {} = [
-            '''.format(c_so_name)
+            hook_sym = '''var {} = ['''.format(c_so_name)
             for low_name in syms[so_name]:
                 size = syms[so_name][low_name]["size"]
                 user_name = syms[so_name][low_name]["user_name"]
@@ -66,22 +65,26 @@ class FridaHooker(Hooker):
                     log_warning('{}:{} is too small to hook well. Skip it.'.format(user_name, so_name))
                     continue
 
-                ss = '''{{"user_name": "{}", "low_name": "{}", "rva": {}}},
-                '''.format(user_name, low_name, rva+1)
+                ss = '''
+            {{
+                "user_name": "{}",
+                "low_name": "{}",
+                // "signature": {{ "return": '', "args": [] }}
+                "rva": {}
+            }},'''.format(user_name, low_name, rva+1)
                 hook_sym += ss
 
             if backtrace:
-                hook_sym += '''];
-                hookMethodsWithBt("{}", {});
-                '''.format(so_name, c_so_name)
+                hook_sym += '''
+        ];
+        hookMethodsWithBt("{}", {});'''.format(so_name, c_so_name)
             else:
-                hook_sym += '''];
-                hookMethods("{}", {});
-                '''.format(so_name, c_so_name)
+                hook_sym += '''
+        ];
+        hookMethods("{}", {});'''.format(so_name, c_so_name)
 
             hook_sym += '''
-                hook_libraries["{}"] = {};
-            '''.format(so_name, c_so_name)
+        hook_libraries["{}"] = {}; '''.format(so_name, c_so_name)
 
             self.config += hook_sym
         self.fridaAgent.setDebugMode(self.debugMode)

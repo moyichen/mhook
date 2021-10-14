@@ -6,12 +6,18 @@
 
 import errno
 import logging
+import lzma
 import os
 import os.path
+import shutil
 import sys
+import zipfile
+
 import click
 import prettytable
+import requests
 import six
+from progressbar import ProgressBar
 
 BSD = sys.platform.find('bsd') != -1
 LINUX = sys.platform.startswith('linux')
@@ -171,3 +177,56 @@ def print_table(info: list, header: list = None, alignment: str = 'l') -> pretty
         else:
             tb.add_row([v])
     return tb
+
+
+def download_file(url: str, path: str = "./"):
+    filename = os.path.join(path, os.path.basename(url))
+    log_debug(filename)
+    if os.path.exists(filename):
+        return filename
+
+    log_info("download: {}".format(url))
+    req = requests.get(url, stream=True)
+    headers = req.headers
+    print(headers)
+
+    progress = ProgressBar(maxval=int(headers['Content-Length'])).start()
+    total = 0
+    safe_make_dirs(os.path.dirname(filename))
+    with open(filename, "wb+") as f:
+        for chunk in req.iter_content(chunk_size=1024):
+            if chunk:
+                f.write(chunk)
+                total += len(chunk)
+                progress.update(total)
+
+    progress.finish()
+
+    return filename
+
+
+def unzip_file(zip_src, dst_dir):
+    log_info("unzip: {} -> {}".format(zip_src, dst_dir))
+    safe_make_dirs(dst_dir)
+    r = zipfile.is_zipfile(zip_src)
+    if r:
+        fz = zipfile.ZipFile(zip_src, 'r')
+        for file in fz.namelist():
+            fz.extract(file, dst_dir)
+    else:
+        log_error('This is not zip')
+
+
+def unxz_file(xz_src, dst_dir):
+    log_info("unzip: {} -> {}".format(xz_src, dst_dir))
+    safe_make_dirs(dst_dir)
+    basename = os.path.basename(xz_src)
+    basename = os.path.splitext(basename)[0]
+    filename = os.path.join(dst_dir, basename)
+
+    with lzma.open(xz_src, 'rb') as src_file:
+        with open(filename, 'wb') as dst_file:
+            shutil.copyfileobj(src_file, dst_file)
+
+    return filename
+

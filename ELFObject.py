@@ -7,13 +7,21 @@ import re
 import prettytable
 
 import CmdHelper
-from utils import log_info
+from utils import log_info, log_error, log_fatal
 
 
-def demangle_symbol(mangled_symbol):
-    output = CmdHelper.GetCmdOutput(['arm-linux-androideabi-c++filt', mangled_symbol])
+def demangle_symbol(mangled_symbol, options=''):
+    output = CmdHelper.GetCmdOutput(['arm-linux-androideabi-c++filt', options, mangled_symbol])
     r = re.match("([\\w:]+)", output.strip())
     return r.group(1)
+
+
+def demangle_symbols(mangled_symbols, options=''):
+    output = CmdHelper.GetCmdOutput(['arm-linux-androideabi-c++filt', options] + mangled_symbols)
+    output = output.strip()
+    output = output.split('\n')
+    assert len(mangled_symbols) == len(output)
+    return output
 
 
 class ELFObject(object):

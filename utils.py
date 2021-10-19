@@ -168,7 +168,12 @@ def print_table(info: list, header: list = None, alignment: str = 'l') -> pretty
 
     tb = prettytable.PrettyTable()
     tb.field_names = header
-    tb.align = alignment
+    if len(alignment) == 1:
+        tb.align = alignment
+    else:
+        for i in range(len(alignment)):
+            tb.align[header[i]] = alignment[i]
+
     for v in info:
         if isinstance(v, tuple):
             tb.add_row(v)

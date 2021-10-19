@@ -69,7 +69,7 @@ class FridaHooker(Hooker):
             {{
                 "user_name": "{}",
                 "low_name": "{}",
-                // "signature": {{ "return": '', "args": [] }}
+                // "signature": {{ "return": '', "args": [] }},
                 "rva": {}
             }},'''.format(user_name, low_name, rva+1)
                 hook_sym += ss
@@ -91,30 +91,37 @@ class FridaHooker(Hooker):
 
     def convert_2_auto_hook_log(self, log, threads):
         log_info('Convert frida log to auto hook log.')
-        r = re.compile('^([\\d\\.]+) (\\d+) (.*) (begin|end)(.*)$')
+        r = re.compile('^(\\d+) (.*) (begin|end)(.*)$')
+        ts_reg = re.compile('^([\\d\\.]+) (.*)$')
         hooklog = []
         for line in log:
-            m = r.match(line)
-            if m:
-                timestamp = float(m.group(1))
-                tid = int(m.group(2))
-                f_name = m.group(3)
-                tag = m.group(4)
-                bt = m.group(5)
-                if tid not in threads:
-                    log_warning("Can not find the name of thread {} in {}.".format(tid, threads))
-                    t_name = 'NA'
-                else:
-                    t_name = threads[tid]
+            t = ts_reg.match(line)
+            if t:
+                timestamp = float(t.group(1))
+                msg = t.group(2)
 
-                d = datetime.datetime.fromtimestamp(timestamp)
                 # 精确到毫秒
-                str_st = d.strftime("%m-%d %H:%M:%S.%f")
-                line = "{} {:.6f} 0.000000 0.000000 {} {} {}".format(str_st, timestamp, tid, f_name, tag)
-                if tag == 'begin':
-                    if len(bt) == 0:
-                        line = line + ' [' + t_name + ']'
+                d = datetime.datetime.fromtimestamp(timestamp)
+                line_header = "{} {:.6f}".format(d.strftime("%m-%d %H:%M:%S.%f"), timestamp)
+
+                m = r.match(msg)
+                if m:
+                    tid = int(m.group(1))
+                    f_name = m.group(2)
+                    tag = m.group(3)
+                    bt = m.group(4)
+                    if tid not in threads:
+                        log_warning("Can not find the name of thread {} in {}.".format(tid, threads))
+                        t_name = 'NA'
                     else:
-                        line = line + bt
+                        t_name = threads[tid]
+
+                    msg = "{} {} {}".format(tid, f_name, tag)
+                    if tag == 'begin':
+                        if len(bt) == 0:
+                            msg = msg + ' [' + t_name + ']'
+                        else:
+                            msg = msg + bt
+                line = "{} 0.000000 0.000000 {}".format(line_header, msg)
             hooklog.append(line)
         return "\n".join(hooklog)

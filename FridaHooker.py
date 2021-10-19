@@ -3,6 +3,8 @@
 # author: moyichen
 # date:   2021/3/23
 import re
+
+from ELFObject import demangle_symbol
 from FridaAgent import *
 from Hookee import Hookee
 from Hooker import Hooker
@@ -60,6 +62,7 @@ class FridaHooker(Hooker):
             for low_name in syms[so_name]:
                 size = syms[so_name][low_name]["size"]
                 user_name = syms[so_name][low_name]["user_name"]
+                short_name = syms[so_name][low_name]["short_name"]
                 rva = syms[so_name][low_name]["rva"]
                 if size <= 4:
                     log_warning('{}:{} is too small to hook well. Skip it.'.format(user_name, so_name))
@@ -68,20 +71,16 @@ class FridaHooker(Hooker):
                 ss = '''
             {{
                 "user_name": "{}",
+                "short_name": "{}",
                 "low_name": "{}",
-                // "signature": {{ "return": '', "args": [] }},
+                // "parameters": {{ "in": [], "out": [], "return": '' }},
                 "rva": {}
-            }},'''.format(user_name, low_name, rva+1)
+            }},'''.format(user_name, short_name, low_name, rva+1)
                 hook_sym += ss
 
-            if backtrace:
-                hook_sym += '''
+            hook_sym += '''
         ];
-        hookMethodsWithBt("{}", {});'''.format(so_name, c_so_name)
-            else:
-                hook_sym += '''
-        ];
-        hookMethods("{}", {});'''.format(so_name, c_so_name)
+        hookMethods("{}", {}, {});'''.format(so_name, c_so_name, "true" if backtrace else "false")
 
             hook_sym += '''
         hook_libraries["{}"] = {}; '''.format(so_name, c_so_name)

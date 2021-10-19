@@ -68,8 +68,15 @@ class ELFObject(object):
                 sym_type = m1.group(3)
                 sym_low_name = m1.group(4)
                 sym_user_name = m2.group(4)
+                m3 = re.match('(.*)\\(', sym_user_name)
+                if m3:
+                    sys_short_name = m3.group(1)
+                else:
+                    sys_short_name = sym_user_name
+                # print("{}\n----{}".format(sym_user_name, sys_short_name))
                 self.symbols.append({'rva': sym_rva, 'hex': hex(sym_rva), 'size': sym_size, 'type': sym_type,
-                                     'low_name': sym_low_name, 'user_name': sym_user_name, 'so_name': so_name})
+                                     'low_name': sym_low_name, 'user_name': sym_user_name, 'so_name': so_name,
+                                     'short_name': sys_short_name})
 
     def print_all_symbols(self):
         tb = prettytable.PrettyTable()
@@ -107,3 +114,4 @@ class ELFObject(object):
 
 if __name__ == '__main__':
     pass
+    elf = ELFObject('output/com.autonavi.amapauto/pkg.5.5.0.103155/symbol/libGFrame.so')

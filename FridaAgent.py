@@ -154,19 +154,27 @@ function obj2str(obj, name) {
 
 function get_arg_value(arg_type, arg_value) {
     switch (arg_type) {
-        case 'T': // this
-        case 'P': // pointer
+        case 'this':
+        case 'pointer':
             return arg_value;
-        case 'U': // uint32_t
+        case 'uint32_t':
             return arg_value.toInt32();
-        case 'I': // int32_t
+        case '*uint32_t':
+            return Memory.readU32(arg_value);
+        case 'int32_t':
             return arg_value.toInt32();
-        case 'B': // bool
+        case '*int32_t':
+            return Memory.readS32(arg_value);
+        case 'bool':
             return bool(arg_value);
-        case 'C': // c-string
+        case 'utf-8':
             return Memory.readUtf8String(arg_value);
-        case 'F': // float
+        case 'utf-16':
+            return Memory.readUtf16String(arg_value);
+        case 'float':
             return hex2float(arg_value);
+        default:
+            return ' ';
     }
 }
 
@@ -183,28 +191,7 @@ function getArgs(args, signature) {
     return arg_str;
 }
 
-function hookMethod(so_name, user_name, low_name, rva, signature) {
-    var f = findFunction(so_name, low_name, rva);
-    if (f) {
-        console.log("hook: " + user_name + " " + "-".times(60-user_name.length) + " : " + so_name + " at " + f);
-        Interceptor.attach(f, {
-            onEnter: function(args) {
-                send(getMsgHeader() + user_name + " begin");
-                if (signature.hasOwnProperty("args")) {
-                    send(getMsgHeader() + user_name + " args: " + getArgs(args, signature["args"]));
-                }
-            },
-            onLeave: function(retval) {
-                if (signature.hasOwnProperty("return")) {
-                    send(getMsgHeader() + user_name + " return: " + get_arg_value(signature["return"], retval));
-                }
-                send(getMsgHeader() + user_name + " end");
-            }
-        });
-    }
-}
-
-function hookMethodWithBt(so_name, user_name, low_name, rva, signature) {
+function hookMethod(so_name, user_name, low_name, rva, signature, backtrace=false) {
     var f = findFunction(so_name, low_name, rva);
     if (f) {
         console.log("hook: " + user_name + " " + "-".times(60-user_name.length) + " : " + so_name + " at " + f);
@@ -212,37 +199,41 @@ function hookMethodWithBt(so_name, user_name, low_name, rva, signature) {
             onEnter: function(args) {
                 var msgHdr = getMsgHeader();
                 send(msgHdr + user_name + " begin");
-                if (signature.hasOwnProperty("args")) {
-                    send(getMsgHeader() + user_name + " args: " + getArgs(args, signature["args"]));
+                // backtrace
+                if (backtrace) {
+                    var backtraces = Thread.backtrace(this.context, Backtracer.ACCURATE);
+                    send(msgHdr + user_name + " begin backtrace " + backtraces.length + ":" + backtraces.join(','));
                 }
-                var backtraces = Thread.backtrace(this.context, Backtracer.ACCURATE);
-                send(msgHdr + user_name + " begin backtrace " + backtraces.length + ":" + backtraces.join(','));
+                // input parameters
+                if (signature.hasOwnProperty("in")) {
+                    send(msgHdr + user_name + "  in: " + getArgs(args, signature["in"]));
+
+                    if (signature.hasOwnProperty("out")) {
+                        this.args = [];
+                        for (var i = 0; i < signature['out'].length; i++) {
+                            this.args[i] = args[i];
+                        }
+                    }
+                }
             },
+
             onLeave: function(retval) {
-                if (signature.hasOwnProperty("return")) {
-                    send(getMsgHeader() + user_name + " return: " + get_arg_value(signature["return"], retval));
+                var msgHdr = getMsgHeader();
+                // output paramters
+                if (signature.hasOwnProperty("out")) {
+                    send(msgHdr + user_name + " out: " + getArgs(this.args, signature["out"]));
                 }
-                send(getMsgHeader() + user_name + " end");
+                // return value
+                if (signature.hasOwnProperty("return")) {
+                    send(msgHdr + user_name + " return: " + get_arg_value(signature["return"], retval));
+                }
+                send(msgHdr + user_name + " end");
             }
         });
     }
 }
 
-/*
-symbols = [
-    {
-        "user_name": xx,
-        "low_name": xx,
-        "rva": 0x1234,
-        "signature": {
-            "return": 'B',
-            "args": ["C", "I", ...]
-        }
-    },
-    {},
-    ...]
-*/
-function hookMethods(so_name, symbols) {
+function hookMethods(so_name, symbols, backtrace=false) {
     var base = Module.findBaseAddress(so_name);
     if (base == null) {
         console.log("hook: " + so_name + " hasn't been loaded.");
@@ -252,36 +243,19 @@ function hookMethods(so_name, symbols) {
     for (var idx in symbols) {
         var sym = symbols[idx];
         var signature = {};
-        if (sym.hasOwnProperty("signature")) {
-            signature = sym["signature"];
+        if (sym.hasOwnProperty("parameters")) {
+            signature = sym["parameters"];
         }
-        hookMethod(so_name, sym["user_name"], sym["low_name"], sym["rva"], signature);
-    }
-}
-
-function hookMethodsWithBt(so_name, symbols) {
-    var base = Module.findBaseAddress(so_name);
-    if (base == null) {
-        console.log("hook: " + so_name + " hasn't been loaded.");
-        return;
-    }
-    
-    for (var idx in symbols) {
-        var sym = symbols[idx];
-        var signature = {};
-        if (sym.hasOwnProperty("signature")) {
-            signature = sym["signature"];
-        }
-        hookMethodWithBt(so_name, sym["user_name"], sym["low_name"], sym["rva"], signature);
+        hookMethod(so_name, sym["short_name"], sym["low_name"], sym["rva"], signature, backtrace);
     }
 }
 
 /*
-signature:
-"signature": 
+"parameters": 
 {
-    "return": 'B',
-    "args": ["C", "I", ...]
+    "in": ["this", "int32_t", "*uint32_t", ...],
+    "out": ['', '', '', '*uint32_t'],
+    "return": 'bool'
 }
 */
 // ==============================================================================
@@ -523,9 +497,9 @@ class FridaAgent(object):
                           '- adb shell {} &'.format(self.server_remote))
                 return False
             else:
-                log_info('frida-server is running now.')
+                log_info('frida-server is running now. (pid={})'.format(pid))
         else:
-            log_info('frida-server already is running.')
+            log_info('frida-server already is running. (pid={})'.format(pid))
         return True
 
     def stop_server(self):

@@ -17,7 +17,7 @@ class Logcat(threading.Thread):
         self.filter = 'hook'
 
     def run(self) -> None:
-        adb = AndroidDevice()
+        adb = AndroidDevice.get_device()
         adb.AdbCmd(['logcat', '-c'])
         ps = subprocess.Popen('adb logcat -v time', stdin=subprocess.PIPE, stdout=subprocess.PIPE, shell=True)
 

@@ -14,7 +14,7 @@ def bt(pid):
     """
         dump tombstone for pid
     """
-    device = AndroidDevice()
+    device = AndroidDevice.get_device()
 
     local_file = device.tombstone(pid)
     if local_file:

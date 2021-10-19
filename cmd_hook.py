@@ -43,7 +43,7 @@ def hook(app, function, backtrace, update_so, auto_start, engine, clip_begin, cl
     """
         hook functions
     """
-    device = AndroidDevice()
+    device = AndroidDevice.get_device()
     hookee = Hookee(app, debug, device)
 
     log_info(function)
@@ -95,7 +95,7 @@ def fps(app, update_so, auto_start, engine, clip_begin, clip_end, debug, filenam
     """
         hook functions
     """
-    device = AndroidDevice()
+    device = AndroidDevice.get_device()
     hookee = Hookee(app, debug, device)
 
     if engine == 'frida':

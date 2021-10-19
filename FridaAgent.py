@@ -470,7 +470,7 @@ class FridaAgent(object):
         self.version = frida.__version__
         self.server_url = "https://github.com/frida/frida/releases"
 
-        shell = AndroidDevice()
+        shell = AndroidDevice.get_device()
         abi = shell.get_device_info(['abi'])[0][1]
         log_info("eabi : " + abi)
         fsu = FridaServerUpdater()
@@ -502,7 +502,7 @@ class FridaAgent(object):
         """
             install the frida server.
         """
-        shell = AndroidDevice()
+        shell = AndroidDevice.get_device()
         if not shell.ls(self.server_remote):
             shell.upload_file(self.server_local, self.server_remote)
             shell.chmod(self.server_remote, '755')
@@ -511,7 +511,7 @@ class FridaAgent(object):
             log_info("frida-server is already installed at `{}`.".format(self.server_remote))
 
     def start_server(self):
-        shell = AndroidDevice()
+        shell = AndroidDevice.get_device()
         pid = shell.pidof('frida-server')
         if pid == -1:
             pipe = CmdHelper.Popen(['adb', 'shell', '/data/local/tmp/frida-server', '&'])
@@ -529,7 +529,7 @@ class FridaAgent(object):
         return True
 
     def stop_server(self):
-        shell = AndroidDevice()
+        shell = AndroidDevice.get_device()
         pid = shell.pidof('frida-server')
         if pid != -1:
             shell.stop_app(pid)
@@ -541,7 +541,7 @@ class FridaAgent(object):
         log_info(pformat(params))
 
     def attach(self, app):
-        shell = AndroidDevice()
+        shell = AndroidDevice.get_device()
         shell.start_app(app)
         pid = shell.pidof(app)
         # pid = self.device.spawn([app])

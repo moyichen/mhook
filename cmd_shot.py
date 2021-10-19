@@ -13,7 +13,7 @@ def shot(auto_open):
     """
         capture the screen, and save it into ~/Pictures directory.
     """
-    device = AndroidDevice()
+    device = AndroidDevice.get_device()
     image = device.screen_shot()
     log_info(image)
     if auto_open:

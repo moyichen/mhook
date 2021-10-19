@@ -12,6 +12,14 @@ from utils import safe_make_dirs, log_info, log_error, log_debug, log_warning, o
 
 class AndroidDevice(object):
     busybox = '/data/local/tmp/busybox'
+    currentDevice = None
+
+    @staticmethod
+    def get_device():
+        if AndroidDevice.currentDevice is None:
+            AndroidDevice.currentDevice = AndroidDevice()
+
+        return AndroidDevice.currentDevice
 
     @staticmethod
     def get_online_devices():

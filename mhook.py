@@ -8,6 +8,7 @@
 import click
 
 from cmd_bt import bt
+from cmd_find import find
 from cmd_hook import hook, fps
 from cmd_shot import shot
 
@@ -21,6 +22,7 @@ cli.add_command(bt)
 cli.add_command(shot)
 cli.add_command(hook)
 cli.add_command(fps)
+cli.add_command(find)
 
 
 if __name__ == '__main__':

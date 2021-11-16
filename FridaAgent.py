@@ -342,9 +342,11 @@ Interceptor.attach(f, {
 });
 '''
 
+
 class FridaServerUpdater(object):
     FRIDA_SERVER_LATEST_RELEASE = 'https://api.github.com/repos/frida/frida/releases/latest'
     FRIDA_SERVER_TAGGED_RELEASE = 'https://api.github.com/repos/frida/frida/releases/tags/{tag}'
+    FRIDA_SERVER_RELEASE = 'https://github.com/frida/frida/releases'
     config = {}
     config_file = os.path.expanduser('~/.mhook/frida_server_versions.json')
     local_path = os.path.expanduser('~/.mhook/android/')
@@ -369,6 +371,17 @@ class FridaServerUpdater(object):
 
     def get_latest_version(self):
         r = self._call(self.FRIDA_SERVER_LATEST_RELEASE)
+        if 'tag_name' in r:
+            latest_version = r['tag_name']
+            self.config['latest_version'] = latest_version
+            self.update_config()
+            return self.config['latest_version']
+        else:
+            log_error(r)
+            return self.config['current_version']
+
+    def get_latest_version2(self):
+        r = self._call(self.FRIDA_SERVER_RELEASE)
         if 'tag_name' in r:
             latest_version = r['tag_name']
             self.config['latest_version'] = latest_version
@@ -653,4 +666,4 @@ if __name__ == '__main__':
     basename = os.path.splitext(basename)[0]
 
     fsu = FridaServerUpdater()
-    fsu.download_latest_version('arm')
+    fsu.get_latest_version2()

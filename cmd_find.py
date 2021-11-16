@@ -3,6 +3,7 @@
 # author: moyichen
 # date:   2021/10/15
 import os.path
+import re
 import stat
 
 import click
@@ -19,11 +20,21 @@ def format_size(size):
         return '{:.2f} MB'.format(size/1024/1024)
 
 
+def list_files(path, regx='.*'):
+    all_files = []
+    for root, dirs, files in os.walk(path):
+        for f in files:
+            f = os.path.join(root, f)
+            if re.search(regx, f):
+                all_files.append(f)
+    return all_files
+
+
 @click.command()
 @click.argument('path')
-@click.argument('ext')
-def find(path='.', ext='*'):
-    files = list_files(path=path, ext=ext)
+@click.argument('regx')
+def find(path='.', regx='*'):
+    files = list_files(path=path, regx=regx)
     result = []
     total_size = 0
     for i, f in enumerate(files):

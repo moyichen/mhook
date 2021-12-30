@@ -9,7 +9,7 @@ import click
 
 from cmd_bt import bt
 from cmd_find import find
-from cmd_hook import hook, fps
+from cmd_hook import hook, fps, hook2, script
 from cmd_shot import shot
 
 
@@ -21,6 +21,8 @@ def cli() -> None:
 cli.add_command(bt)
 cli.add_command(shot)
 cli.add_command(hook)
+cli.add_command(hook2)
+cli.add_command(script)
 cli.add_command(fps)
 cli.add_command(find)
 

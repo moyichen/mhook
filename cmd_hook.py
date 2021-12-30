@@ -4,8 +4,10 @@
 # date:   2020/6/1
 from AndroidDevice import AndroidDevice
 from HookLog import HookLog
+from HookScriptGenerator import genFridaAgentScript
 from Hookee import Hookee
 from FridaHooker import FridaHooker
+from agent import AgentConfig, Agent
 from utils import *
 from progressbar import *
 
@@ -127,6 +129,38 @@ def fps(app, update_so, auto_start, engine, clip_begin, clip_end, debug, filenam
     hooker.gen_report(needPie=True, isDuration=False)
 
     hooker.clear()
+
+
+@click.command()
+@click.argument('symbol_dir')
+@click.option('--function', '-i', help='function name. support regex e.g. `-i ".*click.*[#libXXX.so]"`. '
+                                       'If not set, it will use --filename.', required=False, multiple=True)
+@click.option('--backtrace', '-b', help='catch the call backtrace.', default=False, is_flag=True)
+@click.option('--filename', '-f', help='get config from file.', default='./frida.js', required=False)
+def script(symbol_dir, function, backtrace, filename):
+    """
+        generate frida js
+    """
+    js = genFridaAgentScript(function, symbol_dir, backtrace)
+    with open(filename, 'w+') as f:
+        f.write(js)
+
+
+@click.command()
+@click.option('--app', '-p', required=True, help='package name')
+@click.option('--filename', '-f', help='get config from file.', required=True)
+@click.option('--restart', '-r', help='restart app.', default=False, is_flag=True)
+def hook2(app, filename, restart):
+    """
+        hook functions
+    """
+    c = AgentConfig(name=app, spawn=restart)
+    a = Agent(c)
+    a.run()
+    a.attach_script_file(filename)
+    a.resume()
+    log_info("start tracing. press any key to stop.")
+    sys.stdin.read(1)
 
 
 if __name__ == '__main__':

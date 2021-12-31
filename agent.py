@@ -46,6 +46,8 @@ class OutputHandlers(object):
 
     def __init__(self, filename: str):
         OutputHandlers.logfile = filename
+        with open(OutputHandlers.logfile, 'w+') as f:
+            pass
 
     def device_output(self):
         pass
@@ -77,6 +79,8 @@ class OutputHandlers(object):
                         content = json.dumps(payload)
                     elif isinstance(payload, str):
                         content = payload
+                    elif isinstance(payload, list):
+                        content = pformat(payload)
                     else:
                         log_info("Dumping unknown agent message")
                         pprint(payload)
@@ -194,7 +198,6 @@ class Agent(object):
             log_info("Asked to run without pausing, so resuming in run().")
             self.resume()
 
-        ee = self.exports()
         log_info("{}".format(self.exports().env_frida()))
 
     def attach_script(self, source):

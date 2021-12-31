@@ -251,6 +251,49 @@ class AndroidDevice(object):
 
         return modules
 
+    # 6a4f2000-6a634000 r--p 00000000 b3:04 211818     /data/dalvik-cache/data@app@com.autonavi.amapauto-1.apk@classes.dex
+    def enumerateModules(self, app):
+        log_info("enumerate modules of {}...".format(app))
+
+        pid = self.pidof(app)
+        if pid == -1:
+            log_warning('the app {} has not been launched yet.'.format(app))
+            return None
+
+        modules = {}
+        maps = self.ShellCmd(['cat', '/proc/' + str(pid) + '/maps'])
+
+        p = re.compile(
+            '(?P<saddr>[0-9a-fA-F]+)\\-(?P<eaddr>[0-9a-fA-F]+)\\s+[rwpxs\\-]{4}\\s+[0-9a-fA-F]+\\s+\\w+:\\w+\\s+\\d+\\s+(?P<name>.*)')
+        lines = maps.split('\n')
+        for l in lines:
+            m = p.match(l)
+            if not m:
+                continue
+
+            name = m.group('name').strip()
+            if not name.endswith('.so'):
+                continue
+
+            start_address = int(m.group('saddr'), 16)
+            end_address = int(m.group('eaddr'), 16)
+            if name not in modules:
+                modules[name] = {'name': os.path.basename(name), 'base': start_address, 'end_address': end_address, 'path': name}
+            else:
+                if modules[name]['base'] > start_address:
+                    modules[name]['base'] = start_address
+                if modules[name]['end_address'] < end_address:
+                    modules[name]['end_address'] = end_address
+
+        # 转存成列表格式[{'base': 0x00000000, 'name': xxx, 'size': 000, 'path': xxx}]
+        result = []
+        for _, m in modules.items():
+            m['size'] = m['end_address'] - m['base']
+            m['base'] = hex(m['base'])
+            del m['end_address']
+            result.append(m)
+        return result
+
     def pidof(self, app):
         output = self.ShellCmd([self.busybox, 'pidof', app])
         output = output.strip()

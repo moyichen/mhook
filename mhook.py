@@ -7,6 +7,7 @@
 # Start the Click command group
 import click
 
+from FridaServer import start_frida, kill_frida
 from cmd_bt import bt
 from cmd_find import find
 from cmd_hook import hook, fps, hook2, script
@@ -23,6 +24,8 @@ cli.add_command(shot)
 cli.add_command(hook)
 cli.add_command(hook2)
 cli.add_command(script)
+cli.add_command(start_frida)
+cli.add_command(kill_frida)
 cli.add_command(fps)
 cli.add_command(find)
 

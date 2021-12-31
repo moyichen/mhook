@@ -46,11 +46,18 @@ String.prototype.times = function(n) {
     return (new Array(n+1)).join(this);
 };
 
+function enumerateModules() {
+    var modules = Process.enumerateModules();
+    // console.log(JSON.stringify(modules));
+    send(modules);
+}
+enumerateModules();
+
 var hook_libraries = [];
 function hook_dlopen(_dlopen_) {
     var f = Module.findExportByName(null, _dlopen_);
     if (f) {
-        console.log("hook: " + _dlopen_);
+        console.log("dlopen: " + _dlopen_);
         Interceptor.attach(f, {
             onEnter: function(args) {
                 var pathptr = args[0];
@@ -60,14 +67,12 @@ function hook_dlopen(_dlopen_) {
                     if (idx >= 0) {
                         fn = fn.slice(idx+1);
                     }
-                    if (hook_libraries[fn]) {
-                        this.params = fn;
-                    }
+                    this.params = fn;
                 }
             },
             onLeave: function(retval) {
-                if (this.params) {
-                    console.log("hook: " + this.params + " has been loaded.");
+                console.log("Library " + this.params + " has been loaded at " + Module.getBaseAddress(this.params) + ".");
+                if (hook_libraries[this.params]) {
                     hookMethods(this.params, hook_libraries[this.params]['functions'], hook_libraries[this.params]['backtrace']);
                 }
             }
@@ -227,7 +232,7 @@ function hookMethod(so_name, user_name, low_name, rva, signature, backtrace) {
 function hookMethods(so_name, symbols, backtrace) {
     var base = Module.findBaseAddress(so_name);
     if (base == null) {
-        console.log("hook: " + so_name + " hasn't been loaded.");
+        console.log("Library " + so_name + " hasn't been loaded. All the methods of it will be hooked when it's loaded.");
         return;
     }
 
@@ -314,37 +319,42 @@ def get_full_symbols_dict(sym_list, symbol_dir, type_filters=[]):
 
 def genFridaAgentScript(sym_list, symbol_dir, backtrace=False) -> str:
     log_info("generate hook config: {} with option {}.".format(sym_list, backtrace))
-    hookscript = libjs
+
     config, unfounded_syms = get_full_symbols_dict(sym_list, symbol_dir)
     syms = config.library
+
+    # 将bool型backtrace转换成js bool型
+    backtrace = "true" if backtrace else "false"
+    # 先加上基础函数
+    hookscript = libjs
+
+    # 对每一个so循环
     for so_name in syms:
         c_so_name = so_name.replace(".", "_")
-        hook_sym = '''var {} = ['''.format(c_so_name)
+        so_script = ['''var {} = ['''.format(c_so_name)]
+        so_function_scripts = []
+
+        # 对当前so内的符号循环
         for low_name in syms[so_name]:
             size = syms[so_name][low_name]["size"]
             user_name = syms[so_name][low_name]["user_name"]
             short_name = syms[so_name][low_name]["short_name"]
-            rva = syms[so_name][low_name]["rva"]
+            rva = syms[so_name][low_name]["rva"] + 1
             if size <= 4:
                 log_warning('{}:{} is too small to hook well. Skip it.'.format(user_name, so_name))
                 continue
 
-            ss = '''
-    {{
-        "user_name": "{}",
-        "short_name": "{}",
-        "low_name": "{}",
-        // "parameters": {{ "in": [], "out": [], "return": '' }},
-        "rva": {}
-    }},'''.format(user_name, short_name, low_name, rva + 1)
-            hook_sym += ss
+            f_script = []
+            f_script.append('''    "user_name": "{}"'''.format(user_name))
+            f_script.append('''    "short_name": "{}"'''.format(short_name))
+            f_script.append('''    "low_name": "{}"'''.format(low_name))
+            f_script.append('''    // "parameters": {{ "in": [], "out": [], "return": '' }}''')
+            f_script.append('''    "rva": "{}"'''.format(rva))
+            so_function_scripts.append("\n".join(['{', ',\n'.join(f_script), '}']))
 
-        hook_sym += '''
-];
-hookMethods("{}", {}, {});'''.format(so_name, c_so_name, "true" if backtrace else "false")
-
-        hook_sym += '''
-hook_libraries["{}"] = {{ 'functions': {}, 'backtrace': {} }}; '''.format(so_name, c_so_name, "true" if backtrace else "false")
-
-        hookscript += hook_sym
+        so_script.append(",\n".join(so_function_scripts))
+        so_script.append('];')
+        so_script.append('''hookMethods("{}", {}, {});'''.format(so_name, c_so_name, backtrace))
+        so_script.append('''hook_libraries["{}"] = {{ 'functions': {}, 'backtrace': {} }}; '''.format(so_name, c_so_name, backtrace))
+        hookscript += "\n".join(so_script)
     return hookscript

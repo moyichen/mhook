@@ -2,6 +2,8 @@
 # -*- coding: utf8 -*-
 # author: moyichen
 # date:   2020/6/1
+from pprint import pformat
+
 from AndroidDevice import AndroidDevice
 from HookLog import HookLog
 from HookScriptGenerator import genFridaAgentScript
@@ -161,6 +163,9 @@ def hook2(app, filename, restart):
     a.resume()
     log_info("start tracing. press any key to stop.")
     sys.stdin.read(1)
+    device = AndroidDevice()
+    modules = device.enumerateModules(app)
+    log_info(pformat(modules))
 
 
 if __name__ == '__main__':

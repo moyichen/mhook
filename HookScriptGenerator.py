@@ -187,6 +187,18 @@ function getArgs(args, signature) {
     return arg_str;
 }
 
+function getBacktrace(context) {
+    var result = new Array();
+
+    var backtraces = Thread.backtrace(context, Backtracer.ACCURATE);
+    var callstack = backtraces.map(DebugSymbol.fromAddress);
+    for (var i = 0; i < callstack.length; i++) {
+        result[i] = "    " + i + ": " + callstack[i];
+    }
+
+    return result;
+}
+
 function hookMethod(so_name, user_name, low_name, rva, signature, backtrace) {
     var f = findFunction(so_name, low_name, rva);
     if (f) {
@@ -194,12 +206,12 @@ function hookMethod(so_name, user_name, low_name, rva, signature, backtrace) {
         Interceptor.attach(f, {
             onEnter: function(args) {
                 var msgHdr = getMsgHeader();
-                send(msgHdr + user_name + " begin");
+                var tail = "";
                 // backtrace
                 if (backtrace) {
-                    var backtraces = Thread.backtrace(this.context, Backtracer.ACCURATE);
-                    send(msgHdr + user_name + " begin backtrace " + backtraces.length + ":" + backtraces.join(','));
+                    tail = "\\nCalled from\\n" + getBacktrace(this.context).join('\\n');
                 }
+                send(msgHdr + user_name + " begin" + tail);
                 // input parameters
                 if (signature.hasOwnProperty("in")) {
                     send(msgHdr + user_name + "  in: " + getArgs(args, signature["in"]));

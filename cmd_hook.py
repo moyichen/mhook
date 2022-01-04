@@ -163,9 +163,6 @@ def hook2(app, filename, restart):
     a.resume()
     log_info("start tracing. press any key to stop.")
     sys.stdin.read(1)
-    device = AndroidDevice()
-    modules = device.enumerateModules(app)
-    log_info(pformat(modules))
 
 
 if __name__ == '__main__':

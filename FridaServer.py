@@ -75,6 +75,7 @@ def start_frida():
         start frida server
     """
     c = FridaServer()
+    c.install()
     c.start_server()
 
 

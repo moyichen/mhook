@@ -3,7 +3,9 @@
 # author: qiyichen
 # date:   2021/12/30
 import atexit
+import datetime
 import json
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,7 +13,8 @@ from pprint import pprint, pformat
 
 import frida
 
-from utils import log_info, log_error
+from AndroidDevice import AndroidDevice
+from utils import log_info, log_error, log_warning
 
 my_source = """
     var libGFrame_so = [
@@ -27,6 +30,9 @@ my_source = """
     hook_libraries["libGFrame.so"] = libGFrame_so;
 """
 
+log_reg = "(?P<ts>.{21}) (?P<tid>\\d+) (?P<f_name>[\\w:~\\(\\*,\\s\\[\\]<>&\\)]+) (?P<tag>begin|end)(?P<tail>.*)"
+begin_log_reg = "(?P<ts>.{21}) (?P<tid>\\d+) (?P<f_name>[\\w:~\\(\\*,\\s\\[\\]<>&\\)]+) (?P<tag>begin)(?P<tail>.*)"
+
 
 @dataclass
 class AgentConfig(object):
@@ -41,8 +47,66 @@ class AgentConfig(object):
     debugger: bool = False
 
 
+def convert_timestamp(log):
+    ts_reg = re.compile('^([\\d\\.]+) (.*)', re.DOTALL)
+
+    t = ts_reg.match(log)
+    if not t:
+        return log
+
+    timestamp = float(t.group(1))
+    msg = t.group(2)
+
+    # 精确到毫秒
+    d = datetime.datetime.fromtimestamp(timestamp)
+    line_header = "{}".format(d.strftime("%m-%d %H:%M:%S.%f"))
+
+    return "{} {}".format(line_header, msg)
+
+
+def extract_tid(log):
+    m = re.match(begin_log_reg, log, re.DOTALL)
+
+    if not m:
+        return None
+
+    return int(m.group('tid'))
+
+
+def add_thread_name(log, thread_name):
+    m = re.match(begin_log_reg, log, re.DOTALL)
+
+    if not m:
+        return log
+
+    ts = m.group('ts')
+    tid = int(m.group('tid'))
+    f_name = m.group('f_name')
+    tag = m.group('tag')
+    tail = m.group('tail')
+
+    msg = "{} {} {} {} [{}]{}".format(ts, tid, f_name, tag, thread_name, tail)
+
+    return msg
+
+
+def get_thread_id_name_dict(pid):
+    threads = {}
+    device = AndroidDevice()
+    app_thread_list = device.get_thread_list(pid)
+    if len(app_thread_list) > 0:
+        for t in app_thread_list:
+            threads[t['TID']] = t['T_NAME']
+    else:
+        log_error('cannot retrieve the thread list of {}.'.format(pid))
+
+    return threads
+
+
 class OutputHandlers(object):
     logfile: Path = None
+    pid: int = None
+    threads: dict = None
 
     def __init__(self, filename: str):
         OutputHandlers.logfile = filename
@@ -78,7 +142,16 @@ class OutputHandlers(object):
                     if isinstance(payload, dict):
                         content = json.dumps(payload)
                     elif isinstance(payload, str):
-                        content = payload
+                        content = convert_timestamp(payload)
+
+                        tid = extract_tid(content)
+                        if tid:
+                            # 尝试更新线程信息
+                            if OutputHandlers.threads is None or tid not in OutputHandlers.threads:
+                                OutputHandlers.threads = get_thread_id_name_dict(OutputHandlers.pid)
+
+                            if tid in OutputHandlers.threads:
+                                content = add_thread_name(content, OutputHandlers.threads[tid])
                     elif isinstance(payload, list):
                         content = pformat(payload)
                     else:
@@ -165,6 +238,7 @@ class Agent(object):
                 except Exception as e:
                     log_error("Could not get process {} on {}: {}.".format(self.config.name, self.device, e))
 
+        OutputHandlers.pid = self.pid
         log_info("process PID determined as {}.".format(self.pid))
 
     def attach(self):

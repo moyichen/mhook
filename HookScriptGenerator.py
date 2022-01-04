@@ -193,7 +193,9 @@ function getBacktrace(context) {
     var backtraces = Thread.backtrace(context, Backtracer.ACCURATE);
     var callstack = backtraces.map(DebugSymbol.fromAddress);
     for (var i = 0; i < callstack.length; i++) {
-        result[i] = "    " + i + ": " + callstack[i];
+        var index = "" + i;
+        index = "0".repeat(2-index.length) + index;
+        result[i] = "    #" + index + ": " + callstack[i];
     }
 
     return result;
@@ -206,15 +208,17 @@ function hookMethod(so_name, user_name, low_name, rva, signature, backtrace) {
         Interceptor.attach(f, {
             onEnter: function(args) {
                 var msgHdr = getMsgHeader();
-                var tail = "";
+                
                 // backtrace
+                var bt = "";
                 if (backtrace) {
-                    tail = "\\nCalled from\\n" + getBacktrace(this.context).join('\\n');
+                    bt = "\\nCalled from:\\n" + getBacktrace(this.context).join('\\n');
                 }
-                send(msgHdr + user_name + " begin" + tail);
+                
                 // input parameters
+                var in_args = "";
                 if (signature.hasOwnProperty("in")) {
-                    send(msgHdr + user_name + "  in: " + getArgs(args, signature["in"]));
+                    in_args = "\\n param[in]: " + getArgs(args, signature["in"]);
 
                     if (signature.hasOwnProperty("out")) {
                         this.args = [];
@@ -223,19 +227,23 @@ function hookMethod(so_name, user_name, low_name, rva, signature, backtrace) {
                         }
                     }
                 }
+                
+                send(msgHdr + user_name + " begin" + in_args + bt);
             },
 
             onLeave: function(retval) {
                 var msgHdr = getMsgHeader();
                 // output paramters
+                var out_args = "";
                 if (signature.hasOwnProperty("out")) {
-                    send(msgHdr + user_name + " out: " + getArgs(this.args, signature["out"]));
+                    out_args = "\\n param[out]: " + getArgs(this.args, signature["out"]);
                 }
                 // return value
+                var ret = "";
                 if (signature.hasOwnProperty("return")) {
-                    send(msgHdr + user_name + " return: " + get_arg_value(signature["return"], retval));
+                    ret = "\\n return: " + get_arg_value(signature["return"], retval);
                 }
-                send(msgHdr + user_name + " end");
+                send(msgHdr + user_name + " end" + out_args + ret);
             }
         });
     }

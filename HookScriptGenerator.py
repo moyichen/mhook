@@ -364,12 +364,13 @@ def genFridaAgentScript(sym_list, symbol_dir, backtrace=False) -> str:
                 log_warning('{}:{} is too small to hook well. Skip it.'.format(user_name, so_name))
                 continue
 
-            f_script = []
-            f_script.append('''    "user_name": "{}"'''.format(user_name))
-            f_script.append('''    "short_name": "{}"'''.format(short_name))
-            f_script.append('''    "low_name": "{}"'''.format(low_name))
-            f_script.append('''    // "parameters": {{ "in": [], "out": [], "return": '' }}''')
-            f_script.append('''    "rva": "{}"'''.format(rva))
+            f_script = [
+                '''    "user_name": "{}"'''.format(user_name),
+                '''    "short_name": "{}"'''.format(short_name),
+                '''    "low_name": "{}"'''.format(low_name),
+                '''    // "parameters": { "in": [], "out": [], "return": '' }''',
+                '''    "rva": "{}"'''.format(rva)
+            ]
             so_function_scripts.append("\n".join(['{', ',\n'.join(f_script), '}']))
 
         so_script.append(",\n".join(so_function_scripts))

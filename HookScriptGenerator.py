@@ -350,8 +350,6 @@ def genFridaAgentScript(sym_list, symbol_dir, backtrace=False) -> str:
 
     # 对每一个so循环
     for so_name in syms:
-        c_so_name = so_name.replace(".", "_")
-        so_script = ['''var {} = ['''.format(c_so_name)]
         so_function_scripts = []
 
         # 对当前so内的符号循环
@@ -373,9 +371,13 @@ def genFridaAgentScript(sym_list, symbol_dir, backtrace=False) -> str:
             ]
             so_function_scripts.append("\n".join(['{', ',\n'.join(f_script), '}']))
 
-        so_script.append(",\n".join(so_function_scripts))
-        so_script.append('];')
-        so_script.append('''hookMethods("{}", {}, {});'''.format(so_name, c_so_name, backtrace))
-        so_script.append('''hook_libraries["{}"] = {{ 'functions': {}, 'backtrace': {} }}; '''.format(so_name, c_so_name, backtrace))
+        c_so_name = so_name.replace(".", "_")
+        so_script = [
+            '''var {} = ['''.format(c_so_name),
+            ''',\n'''.join(so_function_scripts),
+            '''];''',
+            '''hookMethods("{}", {}, {});'''.format(so_name, c_so_name, backtrace),
+            '''hook_libraries["{}"] = {{ 'functions': {}, 'backtrace': {} }}; '''.format(so_name, c_so_name, backtrace)
+        ]
         hookscript += "\n".join(so_script)
     return hookscript

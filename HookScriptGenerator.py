@@ -169,6 +169,9 @@ function get_arg_value(arg_type, arg_value) {
             return Memory.readUtf16String(arg_value);
         case 'float':
             return hex2float(arg_value);
+        case 'CGString':
+            var pcData = arg_value.add(4).readPointer();
+            return Memory.readUtf16String(pcData);
         default:
             return ' ';
     }

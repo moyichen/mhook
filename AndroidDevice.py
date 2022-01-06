@@ -83,9 +83,9 @@ class AndroidDevice(object):
         self.ShellCmd(['am', 'start', '-n', activity])
 
     def stop_app(self, app):
-        log_info('stop: ' + app)
+        log_info('stop: ' + str(app))
         if isinstance(app, int):
-            self.ShellCmd(['kill', '-9', app])
+            self.ShellCmd(['kill', '-9', str(app)])
         else:
             self.ShellCmd(['am', 'force-stop', app])
 

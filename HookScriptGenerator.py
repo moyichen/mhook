@@ -95,9 +95,9 @@ function getTickCountUS() {
     return ts.toFixed(6);
 }
 
-function getMsgHeader() {
+function getMsgHeader(threadId) {
     var ts = getTickCountUS();
-    var aa = ts + " " + Process.getCurrentThreadId() + " ";
+    var aa = ts + " " + threadId + " ";
     return aa;
 }
 
@@ -210,7 +210,7 @@ function hookMethod(so_name, user_name, low_name, rva, signature, backtrace) {
         console.log("hook: " + user_name + " " + "-".times(60-user_name.length) + " : " + so_name + " at " + f);
         Interceptor.attach(f, {
             onEnter: function(args) {
-                var msgHdr = getMsgHeader();
+                var msgHdr = getMsgHeader(this.threadId);
                 
                 // backtrace
                 var bt = "";
@@ -235,7 +235,7 @@ function hookMethod(so_name, user_name, low_name, rva, signature, backtrace) {
             },
 
             onLeave: function(retval) {
-                var msgHdr = getMsgHeader();
+                var msgHdr = getMsgHeader(this.threadId);
                 // output paramters
                 var out_args = "";
                 if (signature.hasOwnProperty("out")) {

@@ -179,7 +179,7 @@ function getBacktrace(context) {
         result[i] = "    #" + index + ": " + backtraces[i];
     }
 
-    return result.join('\n');
+    return result.join('\\n');
 }
 
 function hookMethod(so_name, user_name, low_name, rva, arg_types, backtrace) {
@@ -193,13 +193,13 @@ function hookMethod(so_name, user_name, low_name, rva, arg_types, backtrace) {
                 // backtrace
                 var strBacktrace = "";
                 if (backtrace) {
-                    strBacktrace = "\n Called from:\n" + getBacktrace(this.context);
+                    strBacktrace = "\\n Called from:\\n" + getBacktrace(this.context);
                 }
                 
                 // input parameters
                 var strInArgs = "";
                 if (arg_types.hasOwnProperty("in")) {
-                    strInArgs = "\n param[in]: " + dumpArgs(arg_types["in"], args);
+                    strInArgs = "\\n param[in]: " + dumpArgs(arg_types["in"], args);
 
                     if (arg_types.hasOwnProperty("out")) {
                         this.args = [];
@@ -217,12 +217,12 @@ function hookMethod(so_name, user_name, low_name, rva, arg_types, backtrace) {
                 // output paramters
                 var strOutArgs = "";
                 if (arg_types.hasOwnProperty("out")) {
-                    strOutArgs = "\n param[out]: " + dumpArgs(arg_types["out"], this.args);
+                    strOutArgs = "\\n param[out]: " + dumpArgs(arg_types["out"], this.args);
                 }
                 // return value
                 var strReturn = "";
                 if (arg_types.hasOwnProperty("return")) {
-                    strReturn = "\n return: " + dumpArg(arg_types["return"], retval);
+                    strReturn = "\\n return: " + dumpArg(arg_types["return"], retval);
                 }
                 send(msgHdr + user_name + " end" + strOutArgs + strReturn);
             }

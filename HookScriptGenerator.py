@@ -39,6 +39,7 @@ libjs = '''
      var = pcData.readUtf16String();
  * CGView控件id，因为控件是多重继承，args[0]需指向CGView，才能使用下面代码获取控件id
     var id = args[0].add(288).readS32();
+ * json dump对象：JSON.stringify(o)
  */
 // ==============================================================================
 String.prototype.times = function(n) {
@@ -51,7 +52,7 @@ function enumerateModules() {
     // console.log(JSON.stringify(modules));
     send(modules);
 }
-enumerateModules();
+//enumerateModules();
 
 var hook_libraries = [];
 function hook_dlopen(_dlopen_) {
@@ -130,25 +131,7 @@ function hex2float(v) {
     return f[0];
 }
 
-function bool(v) {
-    return Boolean(v.toInt32());
-}
-
-function obj2str(obj, name) {
-    var first = true;
-    var str = name + " {";
-    for (var k in obj) {
-        if (first)
-            str += "\\n";
-        else
-            str += ",\\n";
-        str += "    " + k +": " + obj[k];
-    }
-    str += "\\n}";
-    return str;
-}
-
-function get_arg_value(arg_type, arg_value) {
+function dumpArg(arg_type, arg_value) {
     switch (arg_type) {
         case 'this':
         case 'pointer':
@@ -162,7 +145,7 @@ function get_arg_value(arg_type, arg_value) {
         case '*int32_t':
             return Memory.readS32(arg_value);
         case 'bool':
-            return bool(arg_value);
+            return Boolean(arg_value.toInt32());
         case 'utf-8':
             return Memory.readUtf8String(arg_value);
         case 'utf-16':
@@ -173,38 +156,33 @@ function get_arg_value(arg_type, arg_value) {
             var pcData = arg_value.add(4).readPointer();
             return Memory.readUtf16String(pcData);
         default:
-            return ' ';
+            return 'NA';
     }
 }
 
-function getArgs(args, signature) {
-    var arg_str = "";
-
-    if (signature.length > 0) {
-        arg_str = get_arg_value(signature[0], args[0]);
-        for (var i = 1; i < signature.length; i++) {
-            arg_str += ", " + get_arg_value(signature[i], args[i]);
-        }
+function dumpArgs(arg_types, arg_values) {
+    var args = [];
+    for (var i = 0; i < arg_types.length; i++) {
+        args.push(dumpArg(arg_types[i], arg_values[i]));
     }
-
-    return arg_str;
+    return args.join(", ");
 }
 
 function getBacktrace(context) {
-    var result = new Array();
+    var result = [];
 
-    var backtraces = Thread.backtrace(context, Backtracer.ACCURATE);
-    var callstack = backtraces.map(DebugSymbol.fromAddress);
-    for (var i = 0; i < callstack.length; i++) {
+    var backtraces = Thread.backtrace(context, Backtracer.ACCURATE).map(DebugSymbol.fromAddress);
+    for (var i = 0; i < backtraces.length; i++) {
         var index = "" + i;
+        // 占2位
         index = "0".repeat(2-index.length) + index;
-        result[i] = "    #" + index + ": " + callstack[i];
+        result[i] = "    #" + index + ": " + backtraces[i];
     }
 
-    return result;
+    return result.join('\n');
 }
 
-function hookMethod(so_name, user_name, low_name, rva, signature, backtrace) {
+function hookMethod(so_name, user_name, low_name, rva, arg_types, backtrace) {
     var f = findFunction(so_name, low_name, rva);
     if (f) {
         console.log("hook: " + user_name + " " + "-".times(60-user_name.length) + " : " + so_name + " at " + f);
@@ -213,40 +191,40 @@ function hookMethod(so_name, user_name, low_name, rva, signature, backtrace) {
                 var msgHdr = getMsgHeader(this.threadId);
                 
                 // backtrace
-                var bt = "";
+                var strBacktrace = "";
                 if (backtrace) {
-                    bt = "\\nCalled from:\\n" + getBacktrace(this.context).join('\\n');
+                    strBacktrace = "\n Called from:\n" + getBacktrace(this.context);
                 }
                 
                 // input parameters
-                var in_args = "";
-                if (signature.hasOwnProperty("in")) {
-                    in_args = "\\n param[in]: " + getArgs(args, signature["in"]);
+                var strInArgs = "";
+                if (arg_types.hasOwnProperty("in")) {
+                    strInArgs = "\n param[in]: " + dumpArgs(arg_types["in"], args);
 
-                    if (signature.hasOwnProperty("out")) {
+                    if (arg_types.hasOwnProperty("out")) {
                         this.args = [];
-                        for (var i = 0; i < signature['out'].length; i++) {
+                        for (var i = 0; i < arg_types['out'].length; i++) {
                             this.args[i] = args[i];
                         }
                     }
                 }
                 
-                send(msgHdr + user_name + " begin" + in_args + bt);
+                send(msgHdr + user_name + " begin" + strInArgs + strBacktrace);
             },
 
             onLeave: function(retval) {
                 var msgHdr = getMsgHeader(this.threadId);
                 // output paramters
-                var out_args = "";
-                if (signature.hasOwnProperty("out")) {
-                    out_args = "\\n param[out]: " + getArgs(this.args, signature["out"]);
+                var strOutArgs = "";
+                if (arg_types.hasOwnProperty("out")) {
+                    strOutArgs = "\n param[out]: " + dumpArgs(arg_types["out"], this.args);
                 }
                 // return value
-                var ret = "";
-                if (signature.hasOwnProperty("return")) {
-                    ret = "\\n return: " + get_arg_value(signature["return"], retval);
+                var strReturn = "";
+                if (arg_types.hasOwnProperty("return")) {
+                    strReturn = "\n return: " + dumpArg(arg_types["return"], retval);
                 }
-                send(msgHdr + user_name + " end" + out_args + ret);
+                send(msgHdr + user_name + " end" + strOutArgs + strReturn);
             }
         });
     }
@@ -261,15 +239,16 @@ function hookMethods(so_name, symbols, backtrace) {
 
     for (var idx in symbols) {
         var sym = symbols[idx];
-        var signature = {};
+        var arg_types = {};
         if (sym.hasOwnProperty("parameters")) {
-            signature = sym["parameters"];
+            arg_types = sym["parameters"];
         }
-        hookMethod(so_name, sym["short_name"], sym["low_name"], sym["rva"], signature, backtrace);
+        hookMethod(so_name, sym["short_name"], sym["low_name"], sym["rva"], arg_types, backtrace);
     }
 }
 
 /*
+如果打印中间的参数，需要有空的占位；支持的类型参见dumpArg方法；
 "parameters": 
 {
     "in": ["this", "int32_t", "*uint32_t", ...],

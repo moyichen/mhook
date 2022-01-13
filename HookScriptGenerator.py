@@ -96,6 +96,19 @@ function getTickCountUS() {
     return ts.toFixed(6);
 }
 
+function getCurrentThreadName() {
+    var tn = '';
+
+    if (Java.available) {
+        Java.perform(() => {
+            const Thread = Java.use('java.lang.Thread');
+            tn = `[${Thread.currentThread().getName()}]`;
+        });
+    }
+
+    return tn;
+}
+
 function getMsgHeader(threadId) {
     var ts = getTickCountUS();
     var aa = ts + " " + threadId + " ";
@@ -209,7 +222,7 @@ function hookMethod(so_name, user_name, low_name, rva, arg_types, backtrace) {
                     }
                 }
                 
-                send(msgHdr + user_name + " begin" + strInArgs + strBacktrace);
+                send(msgHdr + user_name + " begin " + getCurrentThreadName() + strInArgs + strBacktrace);
             },
 
             onLeave: function(retval) {

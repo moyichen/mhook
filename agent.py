@@ -106,8 +106,6 @@ def get_thread_id_name_dict(pid):
 class OutputHandlers(object):
     logfile: Path = None
     pid: int = None
-    threads: dict = None
-    threads_no_name: list = []
 
     def __init__(self, filename: str):
         OutputHandlers.logfile = filename
@@ -144,17 +142,6 @@ class OutputHandlers(object):
                         content = json.dumps(payload)
                     elif isinstance(payload, str):
                         content = convert_timestamp(payload)
-
-                        tid = extract_tid(content)
-                        if tid:
-                            # 尝试更新线程信息
-                            if OutputHandlers.threads is None or (tid not in OutputHandlers.threads and tid not in OutputHandlers.threads_no_name):
-                                OutputHandlers.threads = get_thread_id_name_dict(OutputHandlers.pid)
-
-                            if tid in OutputHandlers.threads:
-                                content = add_thread_name(content, OutputHandlers.threads[tid])
-                            else:
-                                OutputHandlers.threads_no_name.append(tid)
                     elif isinstance(payload, list):
                         content = pformat(payload)
                     else:

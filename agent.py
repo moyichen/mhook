@@ -5,6 +5,7 @@
 import atexit
 import datetime
 import json
+import os.path
 import re
 import sys
 from dataclasses import dataclass
@@ -13,8 +14,10 @@ from pprint import pprint, pformat
 
 import frida
 
+from Addr2line import Addr2line
 from AndroidDevice import AndroidDevice
-from utils import log_info, log_error, log_warning
+from CmdHelper import GetCmdOutput
+from utils import log_info, log_error, log_warning, log_debug
 
 my_source = """
     var libGFrame_so = [
@@ -45,6 +48,7 @@ class AgentConfig(object):
     spawn: bool = False
     pause: bool = True
     debugger: bool = False
+    symbol_dir: str = None
 
 
 def convert_timestamp(log):
@@ -106,11 +110,14 @@ def get_thread_id_name_dict(pid):
 class OutputHandlers(object):
     logfile: Path = None
     pid: int = None
+    symbol_dir: Path = None
+    addr2line: Addr2line
 
-    def __init__(self, filename: str):
+    def __init__(self, filename: str, symbol_dir: str = None):
         OutputHandlers.logfile = filename
         with open(OutputHandlers.logfile, 'w+') as f:
             pass
+        OutputHandlers.symbol_dir = symbol_dir
 
     def device_output(self):
         pass
@@ -142,6 +149,7 @@ class OutputHandlers(object):
                         content = json.dumps(payload)
                     elif isinstance(payload, str):
                         content = convert_timestamp(payload)
+                        content = OutputHandlers.convert_backtrace(content)
                     elif isinstance(payload, list):
                         content = pformat(payload)
                     else:
@@ -150,11 +158,43 @@ class OutputHandlers(object):
                 if content:
                     log_info("(agent) {}".format(content))
                     with open(OutputHandlers.logfile, 'a+') as f:
-                        f.write(content+"\n")
+                        f.write(content + "\n")
         except Exception as e:
             log_error("Failed to process an incoming message from agent: {}.".format(e))
             raise e
 
+    @staticmethod
+    def convert_backtrace(log):
+        tag = log.find('Called from:')
+        if tag == -1:
+            return log
+
+        symbol_dir = OutputHandlers.symbol_dir
+        # "    #00: 0x91899197 libhsl.so!0x3a4197"
+        bt_reg1 = re.compile('^(    #\\d{2}: )(0x[0-9a-f]+ )(.*)(!)(0x[0-9a-f]+)')
+        # "    #04: 0x95aa8ddd libbase_utils.so!_ZN3asl17BaseMessageLooper13onProcMessageEPNS_7MessageE+0xe8"
+        bt_reg2 = re.compile('^(    #\\d{2}: )(0x[0-9a-f]+ )(.*)(!)([\\d\\w]+)(\\+0x[0-9a-f]+)')
+
+        result = []
+        lines = log.split('\n')
+        for l in lines:
+            r = bt_reg1.match(l)
+            if r:
+                so = os.path.join(symbol_dir, r.group(3))
+                rva = hex(int(r.group(5), 16))
+                o = GetCmdOutput(['arm-linux-androideabi-addr2line', '-pfCs', '-e', so, rva])
+                l = r.group(1) + r.group(2) + r.group(3) + r.group(4) + r.group(5) + ' => ' + o
+            else:
+                r = bt_reg2.match(l)
+                if r:
+                    so = os.path.join(symbol_dir, r.group(3))
+                    mangled_name = r.group(5)
+                    OutputHandlers.addr2line.get_symbol_address(so, mangled_name)
+                    o = GetCmdOutput(['arm-linux-androideabi-c++filt', mangled_name])
+                    l = r.group(1) + r.group(2) + r.group(3) + r.group(4) + o + r.group(6)
+            result.append(l)
+
+        return "\n".join(result)
 
 class Agent(object):
     config: AgentConfig = None
@@ -172,7 +212,7 @@ class Agent(object):
     def __init__(self, config: AgentConfig):
         self.config = config
         log_info("agent config: {}".format(self.config))
-        self.handlers = OutputHandlers(Path(__file__).parent / 'message.log')
+        self.handlers = OutputHandlers(Path(__file__).parent / 'message.log', config.symbol_dir)
         self.agent_path = Path(__file__).parent / 'agent.js'
         atexit.register(self.teardown)
 
@@ -311,6 +351,9 @@ class Agent(object):
 
 
 if __name__ == '__main__':
+    bt_reg = re.compile('^(    #\\d{2}: )(0x[0-9a-f]+ )(.*)!(0x[0-9a-f]+)')
+    r = bt_reg.match("    #00: 0x91899197 libhsl.so!0x3a4197")
+
     # c = AgentConfig(name="高德地图", spawn=False)
     c = AgentConfig(name="com.autonavi.amapauto", spawn=True)
     a = Agent(c)

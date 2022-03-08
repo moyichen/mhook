@@ -152,11 +152,12 @@ def script(symbol_dir, function, backtrace, filename):
 @click.option('--app', '-p', required=True, help='package name')
 @click.option('--filename', '-f', help='get config from file.', required=True)
 @click.option('--restart', '-r', help='restart app.', default=False, is_flag=True)
-def hook2(app, filename, restart):
+@click.option('--symbol-dir', '-s', help='the symbol directory.', default=None)
+def hook2(app, filename, restart, symbol_dir):
     """
         hook functions
     """
-    c = AgentConfig(name=app, spawn=restart)
+    c = AgentConfig(name=app, spawn=restart, symbol_dir=symbol_dir)
     a = Agent(c)
     a.run()
     a.attach_script_file(filename)

@@ -9,7 +9,7 @@ from utils import *
 class Addr2line(object):
     class Dso(object):
         def __init__(self):
-            self.symbol_to_address = {}
+            self.symbol_to_address = {'mangled_name'}
 
     def __init__(self):
         self.so_map = {}
@@ -31,6 +31,12 @@ class Addr2line(object):
 
         self.so_map[so] = symbol_to_address
         return symbol_to_address
+
+    def get_symbol_address(self, so, sym):
+        symbol_to_address = self.get_so_map(so)
+        if sym in symbol_to_address:
+            return symbol_to_address[sym]
+        return 0
 
     def convert_one_rva(self, so, rva):
         idx = so+hex(rva)

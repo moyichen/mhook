@@ -1,0 +1,4 @@
+#!/bin/bash
+
+cqy_TOOL_HOME=~/work/tools/mhook
+python3 ${cqy_TOOL_HOME}/mhook.py "$@"
